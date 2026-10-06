@@ -8,11 +8,14 @@ src/
 ├── app/            Routes and API handlers. Thin: parse/validate input, call a service, shape the response.
 ├── db/             Prisma client access.
 ├── generated/      Prisma client output (gitignored, produced by `prisma generate`).
+├── features/       Feature-specific schemas, helpers and client components (organizations so far).
 ├── lib/            Small, single-purpose modules (env, logger). No grab-bag utils file.
 └── server/
-    └── services/   Application logic. Feature folders (`src/features/*`) and
-                    `repositories/`, `jobs/`, `integrations/` are added when the first
-                    feature needs them, not before.
+    ├── auth/       Clerk adapter (identity.ts), tenant context, permissions.
+    ├── http/       API handler wrapper (error mapping, JSON parsing), param helpers.
+    ├── repositories/  Prisma queries; org-scoped functions take an explicit organizationId.
+    └── services/   Application logic and authorization rules.
+                    `jobs/` and `integrations/` are added when the first feature needs them.
 ```
 
 ## Rules
@@ -25,4 +28,6 @@ src/
 
 ## Current surface
 
+- Auth, organizations, memberships and RBAC: see [authentication](authentication.md) and
+  [authorization](authorization.md). Endpoint reference: [api](api.md).
 - `GET /api/health` — returns 200 `{status:"ok"}` or 503 `{status:"degraded"}` depending on DB reachability.

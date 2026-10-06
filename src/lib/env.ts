@@ -5,6 +5,9 @@ const serverSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   REDIS_URL: z.string().min(1).optional(),
+  // Read by Clerk's SDK directly; declared so misconfiguration is documented in one place.
+  CLERK_SECRET_KEY: z.string().startsWith("sk_").optional(),
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().startsWith("pk_").optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;

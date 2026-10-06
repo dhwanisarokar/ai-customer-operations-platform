@@ -14,9 +14,30 @@ schema by hand.
 
 ## Current tables
 
-| Table           | Notes                                                                 |
-| --------------- | --------------------------------------------------------------------- |
-| `organizations` | Tenant root. Unique index on `slug` (lookup by URL slug, uniqueness). |
+| Table           | Notes                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `users`         | Local identity. `authProviderId` (Clerk id) and `email` are unique. No credentials stored.                   |
+| `organizations` | Tenant root. Unique `slug`; CHECK constraints: non-blank `name`, `slug` format and length.                   |
+| `memberships`   | `userId` + `organizationId` (both FK, `ON DELETE CASCADE`) + `role` enum. Unique `(userId, organizationId)`. |
+
+`Role` is a PostgreSQL enum: `OWNER`, `ADMIN`, `MEMBER`.
+
+### Indexing decisions
+
+- `memberships (userId, organizationId)` UNIQUE: enforces one membership per pair, and its leading
+  `userId` column serves "list this user's organizations" and the hot tenant-gate lookup
+  ("is user U in organization O?") on every request.
+- `memberships (organizationId, role)`: "list an organization's members" and role counts (e.g. owner
+  checks). Leads with `organizationId` like all tenant queries will.
+- `users.authProviderId` UNIQUE: lookup on every authenticated request. `users.email` UNIQUE:
+  add-member-by-email lookup and one-account-per-email.
+- `organizations.slug` UNIQUE: slug uniqueness and lookup by slug.
+
+### Hand-written migration
+
+`20261006113500_organization_check_constraints` adds CHECK constraints that Prisma's schema language
+cannot express. All other migrations are Prisma-generated and unedited. Keep the constraints in sync
+with `src/features/organizations/slug.ts`.
 
 ## Workflow
 
