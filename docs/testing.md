@@ -108,3 +108,14 @@ and locally use a PostgreSQL that has the extension (the migration runs `CREATE 
 structured reply) with the key from `.env`, prints scores/latency/usage and never the key. It is
 not part of `npm test` or CI. During development it also uncovered the batching pitfall described
 in [rag.md](rag.md).
+
+## Server-state suites (Phase 4.5)
+
+- `tests/helpers/query.tsx` — `createTestQueryClient` (no retries, no gc delay, isolated per test),
+  `renderHookWithQuery`, `renderWithQuery`, and `mockApi(routes)` which stubs `fetch` per
+  `"METHOD /path"` and records calls. Gemini is never called; AI endpoints are mocked at the HTTP edge.
+- Hook tests (`src/features/*/hooks/*.test.tsx`) cover queries (keys, pagination/filters preserved),
+  mutations, optimistic update + rollback + race handling, the outbox (pending/failed/retry/discard)
+  and AI pending/success/failure.
+- Component tests render real components against the stubbed API (`conversation-pane`, controls,
+  composer, ask-ai). Integration SSR tests render the client views with `serialize`d real-DB data.

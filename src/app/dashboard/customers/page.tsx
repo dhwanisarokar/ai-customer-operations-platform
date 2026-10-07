@@ -1,22 +1,24 @@
 import Link from "next/link";
-import { EmptyState } from "@/components/shared/empty-state";
-import { Pagination } from "@/components/shared/pagination";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { CustomerFilters } from "@/features/customers/components/customer-filters";
-import { CustomersTable } from "@/features/customers/components/customers-table";
+import { CustomersView } from "@/features/customers/components/customers-view";
 import {
-  customersHref,
   flattenSearchParams,
   parseListParams,
   type RawSearchParams,
 } from "@/features/customers/list-params";
+import { serialize } from "@/lib/query/serialize";
 import { requirePageContext } from "@/server/auth/page-context";
 import { listTags } from "@/server/services/customer-tags";
 import { listCustomers } from "@/server/services/customers";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Server component: authenticates, resolves the tenant, and fetches the FIRST page of data so the
+ * HTML arrives populated. After that the client view owns the data through TanStack Query.
+ */
 export default async function CustomersPage({
   searchParams,
 }: {
@@ -59,47 +61,13 @@ export default async function CustomersPage({
 
       <CustomerFilters params={params} tags={tags} />
 
-      {result.total === 0 ? (
-        filtered ? (
-          <EmptyState
-            title="No customers match your filters"
-            description="Try a different search or clear the filters."
-            action={
-              <Link href="/dashboard/customers" className={buttonVariants({ variant: "outline" })}>
-                Clear filters
-              </Link>
-            }
-          />
-        ) : (
-          <EmptyState
-            title="No customers yet"
-            description="Add your first customer to start building their profile and timeline."
-            action={
-              ctx.can("create_customers") ? (
-                <Link href="/dashboard/customers/new" className={buttonVariants()}>
-                  New customer
-                </Link>
-              ) : undefined
-            }
-          />
-        )
-      ) : (
-        <>
-          <CustomersTable
-            customers={result.items}
-            sort={query.sort}
-            order={query.order}
-            params={params}
-          />
-          <Pagination
-            page={result.page}
-            pageSize={result.pageSize}
-            total={result.total}
-            totalPages={result.totalPages}
-            hrefForPage={(page) => customersHref(params, { page: String(page) })}
-          />
-        </>
-      )}
+      <CustomersView
+        query={query}
+        params={params}
+        initialData={serialize(result)}
+        filtered={filtered}
+        canCreate={ctx.can("create_customers")}
+      />
     </main>
   );
 }

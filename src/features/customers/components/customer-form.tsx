@@ -1,25 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { NativeSelect } from "@/components/shared/native-select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiRequest, type FieldErrors } from "@/lib/api-client";
+import { ApiError, type FieldErrors } from "@/lib/api-client";
+import type { CustomerFormValues } from "../api/types";
+import { useCreateCustomer, useUpdateCustomer } from "../hooks/mutations";
 import { createCustomerSchema } from "../schemas";
-
-export type CustomerFormValues = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  company: string;
-  jobTitle: string;
-  source: string;
-  status: "ACTIVE" | "INACTIVE";
-};
 
 const EMPTY: CustomerFormValues = {
   firstName: "",
@@ -42,8 +33,9 @@ export function CustomerForm({ mode, initialValues, customerId }: Props) {
   const [values, setValues] = useState<CustomerFormValues>(initialValues ?? EMPTY);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [, startTransition] = useTransition();
+  const create = useCreateCustomer();
+  const update = useUpdateCustomer(customerId ?? "");
+  const submitting = create.isPending || update.isPending;
 
   function set<K extends keyof CustomerFormValues>(key: K, value: CustomerFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }));
@@ -65,28 +57,19 @@ export function CustomerForm({ mode, initialValues, customerId }: Props) {
       return;
     }
     setErrors({});
-    setSubmitting(true);
 
-    const result =
-      mode === "create"
-        ? await apiRequest<{ customer: { id: string } }>("/api/customers", {
-            method: "POST",
-            body: values,
-          })
-        : await apiRequest(`/api/customers/${customerId}`, { method: "PATCH", body: values });
-    setSubmitting(false);
-
-    if (!result.ok) {
-      setErrors(result.fieldErrors);
-      setFormError(result.message);
-      return;
-    }
-    const targetId =
-      mode === "create" ? (result.data as { customer: { id: string } }).customer.id : customerId;
-    startTransition(() => {
+    try {
+      const targetId =
+        mode === "create"
+          ? (await create.mutateAsync(values)).customer.id
+          : (await update.mutateAsync(values), customerId);
       router.push(`/dashboard/customers/${targetId}`);
-      router.refresh();
-    });
+    } catch (error) {
+      if (error instanceof ApiError) setErrors(error.fieldErrors);
+      setFormError(
+        error instanceof Error ? error.message : "Something went wrong. Please try again.",
+      );
+    }
   }
 
   return (

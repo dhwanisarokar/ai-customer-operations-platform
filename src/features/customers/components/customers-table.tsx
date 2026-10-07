@@ -10,14 +10,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDate, formatDateTime } from "@/lib/format";
-import type { CustomerListItem } from "@/server/repositories/customers";
+import type { CustomerRow } from "../api/types";
 import { fullName } from "../normalize";
 import { customersHref } from "../list-params";
 import type { ListCustomersQuery } from "../schemas";
 import { CustomerStatusBadge } from "./customer-status-badge";
 
 type Props = {
-  customers: CustomerListItem[];
+  customers: CustomerRow[];
   sort: ListCustomersQuery["sort"];
   order: ListCustomersQuery["order"];
   /** Current URL params, used to keep filters when changing the sort. */

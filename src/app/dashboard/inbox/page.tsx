@@ -1,31 +1,37 @@
 import Link from "next/link";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Pagination } from "@/components/shared/pagination";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ConversationDetail } from "@/features/conversations/components/conversation-detail";
-import { ConversationList } from "@/features/conversations/components/conversation-list";
+import { ConversationListView } from "@/features/conversations/components/conversation-list-view";
+import { ConversationPane } from "@/features/conversations/components/conversation-pane";
 import { InboxSidebar } from "@/features/conversations/components/inbox-sidebar";
 import { inboxHref, parseInboxParams } from "@/features/conversations/inbox-params";
+import { DEFAULT_EVENTS_PARAMS, DEFAULT_MESSAGES_LIMIT } from "@/features/conversations/api/types";
 import { flattenSearchParams, type RawSearchParams } from "@/features/customers/list-params";
+import { serialize } from "@/lib/query/serialize";
 import { cn } from "@/lib/utils";
+import type { OrganizationContext } from "@/server/auth/context";
 import { requirePageContext } from "@/server/auth/page-context";
-import { listConversations } from "@/server/services/conversations";
+import { NotFoundError } from "@/server/errors";
+import { listConversationEvents, listMessages } from "@/server/services/conversation-messages";
+import { getConversation, listConversations } from "@/server/services/conversations";
+import { listMembers } from "@/server/services/memberships";
 
 export const dynamic = "force-dynamic";
 
-const MESSAGE_PAGE = 50;
-
+/**
+ * Server component: authenticates, resolves the tenant and fetches the first render of the list and
+ * of the selected conversation. The client views (TanStack Query) own the data from there on.
+ * The URL holds only UI selection (view, search, page, selected conversation id), never entities.
+ */
 export default async function InboxPage({
   searchParams,
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
   const ctx = await requirePageContext();
-  const raw = flattenSearchParams(await searchParams);
-  const params = parseInboxParams(raw);
-  const messageLimit = Math.min(Math.max(Number(raw.msgs) || MESSAGE_PAGE, MESSAGE_PAGE), 200);
+  const params = parseInboxParams(flattenSearchParams(await searchParams));
 
   const result = await listConversations(ctx, params.query);
   const current = {
@@ -35,7 +41,6 @@ export default async function InboxPage({
     c: params.selectedId,
     customer: params.customerId,
   };
-  const hrefFor = (id: string) => inboxHref(current, { c: id });
   const closeHref = inboxHref(current, { c: null });
   const hasSelection = params.selectedId !== null;
 
@@ -89,57 +94,21 @@ export default async function InboxPage({
           <InboxSidebar view={params.view} q={params.q} customer={params.customerId} />
         </aside>
 
-        <div className={cn("flex flex-col gap-3", hasSelection && "hidden lg:flex")}>
-          {result.total === 0 ? (
-            params.q || params.view !== "open" ? (
-              <EmptyState
-                title="No conversations match your filters"
-                description="Try another view or a different search."
-                action={
-                  <Link href="/dashboard/inbox" className={buttonVariants({ variant: "outline" })}>
-                    Back to Open
-                  </Link>
-                }
-              />
-            ) : (
-              <EmptyState
-                title="No conversations yet"
-                description="Start a conversation with a customer to see it here."
-                action={
-                  ctx.can("create_conversations") ? (
-                    <Link href="/dashboard/inbox/new" className={buttonVariants()}>
-                      New conversation
-                    </Link>
-                  ) : undefined
-                }
-              />
-            )
-          ) : (
-            <>
-              <ConversationList
-                conversations={result.items}
-                selectedId={params.selectedId}
-                hrefFor={hrefFor}
-              />
-              <Pagination
-                page={result.page}
-                pageSize={result.pageSize}
-                total={result.total}
-                totalPages={result.totalPages}
-                hrefForPage={(page) => inboxHref({ ...current, c: null }, { page })}
-              />
-            </>
-          )}
+        <div className={cn(hasSelection && "hidden lg:block")}>
+          <ConversationListView
+            query={params.query}
+            current={current}
+            initialData={serialize(result)}
+            canCreate={ctx.can("create_conversations")}
+          />
         </div>
 
         <div className={cn(!hasSelection && "hidden lg:block")}>
           {params.selectedId ? (
-            <ConversationDetail
+            <SelectedConversation
               ctx={ctx}
               conversationId={params.selectedId}
-              messageLimit={messageLimit}
               closeHref={closeHref}
-              loadMoreHref={`${hrefFor(params.selectedId)}&msgs=${messageLimit + MESSAGE_PAGE}`}
             />
           ) : (
             <div className="hidden lg:block">
@@ -151,5 +120,62 @@ export default async function InboxPage({
         </div>
       </div>
     </main>
+  );
+}
+
+async function loadSelected(ctx: OrganizationContext, conversationId: string) {
+  try {
+    const [conversation, messages, events, members] = await Promise.all([
+      getConversation(ctx, conversationId),
+      listMessages(ctx, conversationId, { limit: DEFAULT_MESSAGES_LIMIT, includeInternal: true }),
+      listConversationEvents(ctx, conversationId, DEFAULT_EVENTS_PARAMS),
+      listMembers(ctx),
+    ]);
+    return serialize({ conversation: { conversation }, messages, events, members: { members } });
+  } catch (error) {
+    if (error instanceof NotFoundError) return null;
+    throw error;
+  }
+}
+
+async function SelectedConversation({
+  ctx,
+  conversationId,
+  closeHref,
+}: {
+  ctx: OrganizationContext;
+  conversationId: string;
+  closeHref: string;
+}) {
+  const initial = await loadSelected(ctx, conversationId);
+
+  if (!initial) {
+    return (
+      <EmptyState
+        title="Conversation not found"
+        description="It may have been removed, or you may not have access to it."
+        action={
+          <Link href={closeHref} className={buttonVariants({ variant: "outline" })}>
+            Back to inbox
+          </Link>
+        }
+      />
+    );
+  }
+
+  return (
+    <ConversationPane
+      // A fresh pane (and state) per conversation.
+      key={conversationId}
+      conversationId={conversationId}
+      initial={initial}
+      currentUserId={ctx.user.id}
+      can={{
+        update: ctx.can("update_conversations"),
+        assign: ctx.can("assign_conversations"),
+        send: ctx.can("send_messages"),
+      }}
+      closeHref={closeHref}
+    />
   );
 }

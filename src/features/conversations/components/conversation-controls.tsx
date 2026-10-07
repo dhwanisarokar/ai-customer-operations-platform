@@ -1,26 +1,24 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
 import { NativeSelect } from "@/components/shared/native-select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { apiRequest } from "@/lib/api-client";
+import type { ConversationJson } from "../api/types";
 import { priorityLabel, statusLabel } from "../event-text";
 import {
-  CONVERSATION_PRIORITIES,
-  type ConversationPriority,
-  type ConversationStatus,
-} from "../schemas";
+  useAssignConversation,
+  useChangeConversationPriority,
+  useChangeConversationStatus,
+  useUnassignConversation,
+  type Assignee,
+} from "../hooks/mutations";
+import { CONVERSATION_PRIORITIES, type ConversationStatus } from "../schemas";
 import { allowedTransitions } from "../transitions";
 
-type Member = { id: string; label: string };
+type Member = { id: string; label: string; email: string; name: string | null };
 
 type Props = {
-  conversationId: string;
-  status: ConversationStatus;
-  priority: ConversationPriority;
-  assigneeId: string | null;
+  conversation: Pick<ConversationJson, "id" | "status" | "priority" | "assignee">;
   currentUserId: string;
   members: Member[];
   canUpdate: boolean;
@@ -28,49 +26,45 @@ type Props = {
   canAssignOthers: boolean;
 };
 
-/** Status, priority and assignment controls. Rules are enforced by the API; this only offers valid choices. */
-export function ConversationControls(props: Props) {
-  const {
-    conversationId,
-    status,
-    priority,
-    assigneeId,
-    currentUserId,
-    members,
-    canUpdate,
-    canAssignOthers,
-  } = props;
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [, startTransition] = useTransition();
+/**
+ * Status, priority and assignment. Every change is optimistic: the UI (header, inbox list) updates
+ * immediately from the `conversation` the parent reads from TanStack Query, and rolls back with the
+ * server's error message if the change is refused. The controls hold no copy of the server state.
+ */
+export function ConversationControls({
+  conversation,
+  currentUserId,
+  members,
+  canUpdate,
+  canAssignOthers,
+}: Props) {
+  const status = useChangeConversationStatus();
+  const priority = useChangeConversationPriority();
+  const assign = useAssignConversation();
+  const unassign = useUnassignConversation();
 
-  async function run(request: Promise<{ ok: boolean; message?: string }>) {
-    setBusy(true);
-    setError(null);
-    const result = await request;
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.message ?? "Update failed");
-      return;
-    }
-    startTransition(() => router.refresh());
-  }
-
-  const patch = (body: Record<string, string>) =>
-    run(apiRequest(`/api/conversations/${conversationId}`, { method: "PATCH", body }));
-  const assign = (userId: string) =>
-    run(
-      apiRequest(`/api/conversations/${conversationId}/assign`, {
-        method: "POST",
-        body: { userId },
-      }),
-    );
-  const unassign = () =>
-    run(apiRequest(`/api/conversations/${conversationId}/unassign`, { method: "POST" }));
-
-  const statuses: ConversationStatus[] = [status, ...allowedTransitions(status)];
+  const id = conversation.id;
+  const statuses: ConversationStatus[] = [
+    conversation.status,
+    ...allowedTransitions(conversation.status),
+  ];
+  const assigneeId = conversation.assignee?.id ?? null;
   const mine = assigneeId === currentUserId;
+  const error = status.error ?? priority.error ?? assign.error ?? unassign.error;
+
+  const asAssignee = (member: Member): Assignee => ({
+    id: member.id,
+    name: member.name,
+    email: member.email,
+  });
+  const me = members.find((member) => member.id === currentUserId);
+
+  function resetErrors() {
+    status.reset();
+    priority.reset();
+    assign.reset();
+    unassign.reset();
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -78,9 +72,15 @@ export function ConversationControls(props: Props) {
         <Field label="Status" htmlFor="ctl-status">
           <NativeSelect
             id="ctl-status"
-            value={status}
-            disabled={!canUpdate || busy}
-            onChange={(event) => patch({ status: event.target.value })}
+            value={conversation.status}
+            disabled={!canUpdate}
+            onChange={(event) => {
+              resetErrors();
+              status.mutate({
+                conversationId: id,
+                status: event.target.value as ConversationStatus,
+              });
+            }}
             className="w-36"
           >
             {statuses.map((value) => (
@@ -94,9 +94,15 @@ export function ConversationControls(props: Props) {
         <Field label="Priority" htmlFor="ctl-priority">
           <NativeSelect
             id="ctl-priority"
-            value={priority}
-            disabled={!canUpdate || busy}
-            onChange={(event) => patch({ priority: event.target.value })}
+            value={conversation.priority}
+            disabled={!canUpdate}
+            onChange={(event) => {
+              resetErrors();
+              priority.mutate({
+                conversationId: id,
+                priority: event.target.value as (typeof CONVERSATION_PRIORITIES)[number],
+              });
+            }}
             className="w-32"
           >
             {CONVERSATION_PRIORITIES.map((value) => (
@@ -112,8 +118,12 @@ export function ConversationControls(props: Props) {
             <NativeSelect
               id="ctl-assignee"
               value={assigneeId ?? ""}
-              disabled={busy}
-              onChange={(event) => (event.target.value ? assign(event.target.value) : unassign())}
+              onChange={(event) => {
+                resetErrors();
+                const member = members.find((candidate) => candidate.id === event.target.value);
+                if (member) assign.mutate({ conversationId: id, assignee: asAssignee(member) });
+                else unassign.mutate({ conversationId: id });
+              }}
               className="w-48"
             >
               <option value="">Unassigned</option>
@@ -128,21 +138,31 @@ export function ConversationControls(props: Props) {
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium">Assignee</span>
             {mine ? (
-              <Button variant="outline" size="sm" disabled={busy} onClick={unassign}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  resetErrors();
+                  unassign.mutate({ conversationId: id });
+                }}
+              >
                 Unassign me
               </Button>
             ) : assigneeId === null ? (
               <Button
                 variant="outline"
                 size="sm"
-                disabled={busy}
-                onClick={() => assign(currentUserId)}
+                disabled={!me}
+                onClick={() => {
+                  resetErrors();
+                  if (me) assign.mutate({ conversationId: id, assignee: asAssignee(me) });
+                }}
               >
                 Assign to me
               </Button>
             ) : (
               <span className="text-muted-foreground py-1.5 text-sm">
-                {members.find((member) => member.id === assigneeId)?.label ?? "Another member"}
+                {conversation.assignee?.name ?? conversation.assignee?.email}
               </span>
             )}
           </div>
@@ -150,7 +170,7 @@ export function ConversationControls(props: Props) {
       </div>
       {error ? (
         <p role="alert" className="text-destructive text-sm">
-          {error}
+          {error.message}
         </p>
       ) : null}
     </div>

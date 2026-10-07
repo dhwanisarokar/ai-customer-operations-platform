@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,19 +13,20 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { apiRequest } from "@/lib/api-client";
+import {
+  useArchiveKnowledgeDocument,
+  useDeleteKnowledgeDocument,
+  usePublishKnowledgeDocument,
+  useUnpublishKnowledgeDocument,
+} from "../hooks/mutations";
 
 type Status = "DRAFT" | "PUBLISHED" | "ARCHIVED";
-type Action = "publish" | "unpublish" | "archive" | "delete";
 
-const BUSY_LABEL: Record<Action, string> = {
-  publish: "Indexing and publishing...",
-  unpublish: "Unpublishing...",
-  archive: "Archiving...",
-  delete: "Deleting...",
-};
-
-/** Lifecycle buttons. Rules are enforced by the API; this only offers sensible actions. */
+/**
+ * Lifecycle buttons. None is optimistic: publishing runs the embedding model, so the button shows a
+ * pending state ("Indexing and publishing...") and the document's status changes only when the
+ * server confirms. Rules are enforced by the API; this only offers sensible actions.
+ */
 export function KnowledgeActions({
   documentId,
   title,
@@ -36,57 +37,86 @@ export function KnowledgeActions({
   status: Status;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<Action | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [, startTransition] = useTransition();
+  const publish = usePublishKnowledgeDocument(documentId);
+  const unpublish = useUnpublishKnowledgeDocument(documentId);
+  const archive = useArchiveKnowledgeDocument(documentId);
+  const remove = useDeleteKnowledgeDocument(documentId);
 
-  async function run(action: Action) {
-    setBusy(action);
-    setError(null);
-    const result =
-      action === "delete"
-        ? await apiRequest(`/api/knowledge/${documentId}`, { method: "DELETE" })
-        : await apiRequest(`/api/knowledge/${documentId}/${action}`, { method: "POST" });
-    setBusy(null);
-    if (!result.ok) {
-      setError(result.message);
+  const busy = publish.isPending || unpublish.isPending || archive.isPending || remove.isPending;
+  const error = publish.error ?? unpublish.error ?? archive.error ?? remove.error;
+
+  function clearErrors() {
+    publish.reset();
+    unpublish.reset();
+    archive.reset();
+    remove.reset();
+  }
+
+  async function onDelete() {
+    clearErrors();
+    try {
+      await remove.mutateAsync();
       setConfirmDelete(false);
-      return;
+      router.push("/dashboard/knowledge");
+    } catch {
+      setConfirmDelete(false); // the error is shown below
     }
-    setConfirmDelete(false);
-    startTransition(() => {
-      if (action === "delete") router.push("/dashboard/knowledge");
-      router.refresh();
-    });
   }
 
   return (
     <div className="flex flex-col items-end gap-2">
       <div className="flex flex-wrap justify-end gap-2">
         {status === "DRAFT" ? (
-          <Button onClick={() => run("publish")} disabled={busy !== null}>
-            {busy === "publish" ? BUSY_LABEL.publish : "Publish"}
+          <Button
+            onClick={() => {
+              clearErrors();
+              publish.mutate();
+            }}
+            disabled={busy}
+          >
+            {publish.isPending ? "Indexing and publishing..." : "Publish"}
           </Button>
         ) : null}
         {status === "PUBLISHED" ? (
-          <Button variant="outline" onClick={() => run("unpublish")} disabled={busy !== null}>
-            {busy === "unpublish" ? BUSY_LABEL.unpublish : "Unpublish"}
+          <Button
+            variant="outline"
+            onClick={() => {
+              clearErrors();
+              unpublish.mutate();
+            }}
+            disabled={busy}
+          >
+            {unpublish.isPending ? "Unpublishing..." : "Unpublish"}
           </Button>
         ) : null}
         {status === "ARCHIVED" ? (
-          <Button variant="outline" onClick={() => run("unpublish")} disabled={busy !== null}>
-            {busy === "unpublish" ? "Restoring..." : "Restore as draft"}
+          <Button
+            variant="outline"
+            onClick={() => {
+              clearErrors();
+              unpublish.mutate();
+            }}
+            disabled={busy}
+          >
+            {unpublish.isPending ? "Restoring..." : "Restore as draft"}
           </Button>
         ) : null}
         {status !== "ARCHIVED" ? (
-          <Button variant="outline" onClick={() => run("archive")} disabled={busy !== null}>
-            {busy === "archive" ? BUSY_LABEL.archive : "Archive"}
+          <Button
+            variant="outline"
+            onClick={() => {
+              clearErrors();
+              archive.mutate();
+            }}
+            disabled={busy}
+          >
+            {archive.isPending ? "Archiving..." : "Archive"}
           </Button>
         ) : null}
 
         <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-          <DialogTrigger render={<Button variant="destructive" disabled={busy !== null} />}>
+          <DialogTrigger render={<Button variant="destructive" disabled={busy} />}>
             Delete
           </DialogTrigger>
           <DialogContent>
@@ -99,8 +129,8 @@ export function KnowledgeActions({
             </DialogHeader>
             <DialogFooter>
               <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-              <Button variant="destructive" onClick={() => run("delete")} disabled={busy !== null}>
-                {busy === "delete" ? BUSY_LABEL.delete : "Delete document"}
+              <Button variant="destructive" onClick={onDelete} disabled={busy}>
+                {remove.isPending ? "Deleting..." : "Delete document"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -108,7 +138,7 @@ export function KnowledgeActions({
       </div>
       {error ? (
         <p role="alert" className="text-destructive text-right text-sm">
-          {error}
+          {error.message}
         </p>
       ) : null}
     </div>

@@ -1,72 +1,72 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  apiError,
+  deferred,
+  json,
+  mockApi,
+  renderWithQuery,
+} from "../../../../tests/helpers/query";
+import { message } from "../../../../tests/helpers/fixtures";
 import { AskAiButton } from "./ask-ai-button";
 
-const refresh = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }));
-
-const fetchMock = vi.fn();
-beforeEach(() => {
-  vi.stubGlobal("fetch", fetchMock);
-});
 afterEach(() => {
   cleanup();
-  fetchMock.mockReset();
-  refresh.mockReset();
   vi.unstubAllGlobals();
 });
 
-const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-
 describe("AskAiButton", () => {
-  it("calls the server API (never an AI provider) with no parameters, then refreshes", async () => {
-    fetchMock.mockResolvedValue(json(201, { message: { id: "m1" } }));
+  it("calls the server API (never an AI provider) with no parameters", async () => {
+    const api = mockApi({
+      "POST /api/conversations/c1/ai-reply": () =>
+        json(201, { message: message({ senderType: "AI_AGENT" }) }),
+      "GET /api/conversations": () => json(200, {}),
+    });
     const user = userEvent.setup();
-    render(<AskAiButton conversationId="c1" />);
+    renderWithQuery(<AskAiButton conversationId="c1" />);
     await user.click(screen.getByRole("button", { name: "Ask AI" }));
 
-    await waitFor(() => expect(refresh).toHaveBeenCalled());
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/conversations/c1/ai-reply");
-    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
-    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+    await waitFor(() => expect(api.count("POST", "/api/conversations/c1/ai-reply")).toBe(1));
+    expect(api.calls[0].body).toBeUndefined();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ask AI" })).toBeEnabled());
   });
 
-  it("shows a busy state and blocks double clicks while generating", async () => {
-    let resolve!: (value: Response) => void;
-    fetchMock.mockReturnValue(new Promise<Response>((r) => (resolve = r)));
+  it("shows 'Generating AI reply...' while the server works and blocks double clicks", async () => {
+    const gate = deferred<Response>();
+    const api = mockApi({ "POST /api/conversations/c1/ai-reply": () => gate.promise });
     const user = userEvent.setup();
-    render(<AskAiButton conversationId="c1" />);
+    renderWithQuery(<AskAiButton conversationId="c1" />);
     await user.click(screen.getByRole("button", { name: "Ask AI" }));
-    const busy = screen.getByRole("button", { name: /Generating reply/ });
+
+    const busy = await screen.findByRole("button", { name: /Generating AI reply/ });
     expect(busy).toBeDisabled();
     await user.click(busy);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    resolve(json(201, {}));
-    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(api.count("POST", "/api/conversations/c1/ai-reply")).toBe(1);
+
+    gate.resolve(json(201, { message: message({ senderType: "AI_AGENT" }) }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ask AI" })).toBeEnabled());
   });
 
-  it("shows the safe API error and does not refresh when generation fails", async () => {
-    fetchMock.mockResolvedValue(
-      json(502, {
-        error: {
-          code: "ai_unavailable",
-          message: "The AI service is temporarily unavailable. Please try again.",
-        },
-      }),
-    );
+  it("shows the safe API error when generation fails, then lets the user try again", async () => {
+    mockApi({
+      "POST /api/conversations/c1/ai-reply": () =>
+        apiError(
+          502,
+          "ai_unavailable",
+          "The AI service is temporarily unavailable. Please try again.",
+        ),
+    });
     const user = userEvent.setup();
-    render(<AskAiButton conversationId="c1" />);
+    renderWithQuery(<AskAiButton conversationId="c1" />);
     await user.click(screen.getByRole("button", { name: "Ask AI" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("temporarily unavailable");
-    expect(refresh).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Ask AI" })).toBeEnabled();
   });
 
   it("is disabled when told so (resolved conversations)", () => {
-    render(<AskAiButton conversationId="c1" disabled />);
+    renderWithQuery(<AskAiButton conversationId="c1" disabled />);
     expect(screen.getByRole("button", { name: "Ask AI" })).toBeDisabled();
   });
 });

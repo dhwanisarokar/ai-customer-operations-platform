@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { renderWithQuery as render } from "../../../../tests/helpers/query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KnowledgeActions } from "./knowledge-actions";
 import { KnowledgeDocumentForm } from "./knowledge-document-form";
@@ -87,7 +88,7 @@ describe("KnowledgeActions", () => {
     render(<KnowledgeActions documentId="d1" title="Refunds" status="DRAFT" />);
     expect(screen.queryByRole("button", { name: "Unpublish" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Publish" }));
-    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(fetchMock.mock.calls[0][0]).toBe("/api/knowledge/d1/publish");
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
   });
@@ -115,6 +116,5 @@ describe("KnowledgeActions", () => {
     await user.click(screen.getByRole("button", { name: "Publish" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not generate embeddings");
     expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
-    expect(refresh).not.toHaveBeenCalled();
   });
 });

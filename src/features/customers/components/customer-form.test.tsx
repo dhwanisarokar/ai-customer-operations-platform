@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { renderWithQuery as render } from "../../../../tests/helpers/query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CustomerForm } from "./customer-form";
 

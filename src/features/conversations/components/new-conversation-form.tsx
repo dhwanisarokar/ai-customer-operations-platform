@@ -1,15 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { NativeSelect } from "@/components/shared/native-select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { apiRequest, type FieldErrors } from "@/lib/api-client";
+import { ApiError, type FieldErrors } from "@/lib/api-client";
 import { priorityLabel } from "../event-text";
+import { useCreateConversation } from "../hooks/mutations";
 import { CONVERSATION_PRIORITIES, createConversationSchema, MAX_MESSAGE_LENGTH } from "../schemas";
 import { CustomerPicker, type PickedCustomer } from "./customer-picker";
 
@@ -25,8 +26,8 @@ export function NewConversationForm({
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [, startTransition] = useTransition();
+  const create = useCreateConversation();
+  const busy = create.isPending;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,21 +51,15 @@ export function NewConversationForm({
       return;
     }
     setErrors({});
-    setBusy(true);
-    const result = await apiRequest<{ conversation: { id: string } }>("/api/conversations", {
-      method: "POST",
-      body: payload,
-    });
-    setBusy(false);
-    if (!result.ok) {
-      setErrors(result.fieldErrors);
-      setFormError(result.message);
-      return;
+    try {
+      const { conversation } = await create.mutateAsync(parsed.data);
+      router.push(`/dashboard/inbox?view=all&c=${conversation.id}`);
+    } catch (error) {
+      if (error instanceof ApiError) setErrors(error.fieldErrors);
+      setFormError(
+        error instanceof Error ? error.message : "Something went wrong. Please try again.",
+      );
     }
-    startTransition(() => {
-      router.push(`/dashboard/inbox?view=all&c=${result.data.conversation.id}`);
-      router.refresh();
-    });
   }
 
   return (

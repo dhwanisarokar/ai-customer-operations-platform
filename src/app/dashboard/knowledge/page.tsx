@@ -1,13 +1,12 @@
 import Link from "next/link";
-import { EmptyState } from "@/components/shared/empty-state";
 import { NativeSelect } from "@/components/shared/native-select";
-import { Pagination } from "@/components/shared/pagination";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { flattenSearchParams, type RawSearchParams } from "@/features/customers/list-params";
-import { KnowledgeTable } from "@/features/knowledge/components/knowledge-table";
-import { knowledgeHref, parseKnowledgeListParams } from "@/features/knowledge/list-params";
+import { KnowledgeListView } from "@/features/knowledge/components/knowledge-list-view";
+import { parseKnowledgeListParams } from "@/features/knowledge/list-params";
+import { serialize } from "@/lib/query/serialize";
 import { requirePageContext } from "@/server/auth/page-context";
 import { listDocuments } from "@/server/services/knowledge";
 
@@ -91,37 +90,13 @@ export default async function KnowledgePage({
         ) : null}
       </form>
 
-      {result.total === 0 ? (
-        filtered ? (
-          <EmptyState
-            title="No documents match your filters"
-            description="Try a different search or clear the filters."
-          />
-        ) : (
-          <EmptyState
-            title="No knowledge yet"
-            description="Write your first article (refund policy, shipping, FAQs), then publish it so the AI can use it."
-            action={
-              ctx.can("edit_knowledge") ? (
-                <Link href="/dashboard/knowledge/new" className={buttonVariants()}>
-                  New document
-                </Link>
-              ) : undefined
-            }
-          />
-        )
-      ) : (
-        <>
-          <KnowledgeTable documents={result.items} />
-          <Pagination
-            page={result.page}
-            pageSize={result.pageSize}
-            total={result.total}
-            totalPages={result.totalPages}
-            hrefForPage={(page) => knowledgeHref(params, { page: String(page) })}
-          />
-        </>
-      )}
+      <KnowledgeListView
+        query={query}
+        params={params}
+        initialData={serialize(result)}
+        filtered={filtered}
+        canCreate={ctx.can("edit_knowledge")}
+      />
     </main>
   );
 }

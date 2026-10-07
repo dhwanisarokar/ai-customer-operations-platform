@@ -8,10 +8,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDateTime } from "@/lib/format";
-import type { KnowledgeDocumentListItem } from "@/server/repositories/knowledge-documents";
+import type { KnowledgeListResponse } from "../api/types";
 import { KnowledgeStatusBadge } from "./knowledge-status-badge";
 
-export function KnowledgeTable({ documents }: { documents: KnowledgeDocumentListItem[] }) {
+export function KnowledgeTable({ documents }: { documents: KnowledgeListResponse["items"] }) {
   return (
     <div className="border-border bg-card overflow-x-auto rounded-xl border">
       <Table>

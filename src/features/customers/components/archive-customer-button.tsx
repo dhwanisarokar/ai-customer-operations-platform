@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,8 +13,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { apiRequest } from "@/lib/api-client";
+import { useArchiveCustomer } from "../hooks/mutations";
 
+/** Archives with optimistic UI: the customer disappears from lists at once; a failure restores it. */
 export function ArchiveCustomerButton({
   customerId,
   customerName,
@@ -24,24 +25,16 @@ export function ArchiveCustomerButton({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+  const archive = useArchiveCustomer();
 
-  async function archive() {
-    setBusy(true);
-    setError(null);
-    const result = await apiRequest(`/api/customers/${customerId}`, { method: "DELETE" });
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.message);
-      return;
-    }
-    setOpen(false);
-    startTransition(() => {
+  async function onArchive() {
+    try {
+      await archive.mutateAsync({ customerId });
+      setOpen(false);
       router.push("/dashboard/customers");
-      router.refresh();
-    });
+    } catch {
+      // The cache was rolled back; the error is shown below and the dialog stays open.
+    }
   }
 
   return (
@@ -55,15 +48,15 @@ export function ArchiveCustomerButton({
             You can restore them later by setting the status back to active.
           </DialogDescription>
         </DialogHeader>
-        {error ? (
+        {archive.error ? (
           <p role="alert" className="text-destructive text-sm">
-            {error}
+            {archive.error.message}
           </p>
         ) : null}
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button variant="destructive" onClick={archive} disabled={busy}>
-            {busy ? "Archiving..." : "Archive customer"}
+          <Button variant="destructive" onClick={onArchive} disabled={archive.isPending}>
+            {archive.isPending ? "Archiving..." : "Archive customer"}
           </Button>
         </DialogFooter>
       </DialogContent>

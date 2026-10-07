@@ -2,7 +2,7 @@ import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatRelative } from "@/lib/format";
-import type { ConversationDto } from "@/server/repositories/conversations";
+import type { ConversationJson } from "../api/types";
 import { ConversationPriorityBadge, ConversationStatusBadge } from "./conversation-badges";
 
 /** The Conversations section of Customer 360. Server-rendered from the 360 payload. */
@@ -13,7 +13,7 @@ export function CustomerConversations({
   canCreate,
 }: {
   customerId: string;
-  conversations: ConversationDto[];
+  conversations: ConversationJson[];
   total: number;
   canCreate: boolean;
 }) {

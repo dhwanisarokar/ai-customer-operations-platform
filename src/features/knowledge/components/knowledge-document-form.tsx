@@ -1,13 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { apiRequest, type FieldErrors } from "@/lib/api-client";
+import { ApiError, type FieldErrors } from "@/lib/api-client";
+import type { KnowledgeFormValues } from "../api/types";
+import { useCreateKnowledgeDocument, useUpdateKnowledgeDocument } from "../hooks/mutations";
 import {
   createDocumentSchema,
   MAX_CONTENT_LENGTH,
@@ -15,7 +17,7 @@ import {
   MAX_TITLE_LENGTH,
 } from "../schemas";
 
-type Values = { title: string; description: string; content: string };
+type Values = KnowledgeFormValues;
 
 type Props =
   | { mode: "create"; initialValues?: undefined; documentId?: undefined; live?: undefined }
@@ -35,8 +37,9 @@ export function KnowledgeDocumentForm({ mode, initialValues, documentId, live }:
   );
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [, startTransition] = useTransition();
+  const create = useCreateKnowledgeDocument();
+  const update = useUpdateKnowledgeDocument(documentId ?? "");
+  const busy = create.isPending || update.isPending;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,27 +56,18 @@ export function KnowledgeDocumentForm({ mode, initialValues, documentId, live }:
       return;
     }
     setErrors({});
-    setBusy(true);
-    const result =
-      mode === "create"
-        ? await apiRequest<{ document: { id: string } }>("/api/knowledge", {
-            method: "POST",
-            body: values,
-          })
-        : await apiRequest(`/api/knowledge/${documentId}`, { method: "PATCH", body: values });
-    setBusy(false);
-
-    if (!result.ok) {
-      setErrors(result.fieldErrors);
-      setFormError(result.message);
-      return;
-    }
-    const targetId =
-      mode === "create" ? (result.data as { document: { id: string } }).document.id : documentId;
-    startTransition(() => {
+    try {
+      const targetId =
+        mode === "create"
+          ? (await create.mutateAsync(values)).document.id
+          : (await update.mutateAsync(values), documentId);
       router.push(`/dashboard/knowledge/${targetId}`);
-      router.refresh();
-    });
+    } catch (error) {
+      if (error instanceof ApiError) setErrors(error.fieldErrors);
+      setFormError(
+        error instanceof Error ? error.message : "Something went wrong. Please try again.",
+      );
+    }
   }
 
   const set = (key: keyof Values) => (value: string) =>

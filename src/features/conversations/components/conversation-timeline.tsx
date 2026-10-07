@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { dayLabel, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { describeEvent, MESSAGE_EVENT_TYPES, type TimelineEvent } from "../event-text";
@@ -16,6 +17,16 @@ export type TimelineMessage = {
   } | null;
 };
 
+/** A message the user just submitted that the server has not confirmed yet (see lib/query/outbox.ts). */
+export type PendingMessage = {
+  clientId: string;
+  body: string;
+  type: "MESSAGE" | "INTERNAL_NOTE";
+  from: "USER" | "CUSTOMER";
+  status: "sending" | "failed";
+  error: string | null;
+};
+
 export type TimelineSystemEvent = TimelineEvent & { id: string; createdAt: Date | string };
 
 type Entry =
@@ -31,11 +42,21 @@ export function ConversationTimeline({
   messages,
   events,
   names,
+  pending = [],
+  onRetry,
+  onDiscard,
+  aiPending = false,
 }: {
   messages: TimelineMessage[];
   events: TimelineSystemEvent[];
   /** user id -> display name, for wording audit events. */
   names: ReadonlyMap<string, string>;
+  /** Messages being sent or failed; shown after the confirmed history, clearly marked. */
+  pending?: PendingMessage[];
+  onRetry?: (clientId: string) => void;
+  onDiscard?: (clientId: string) => void;
+  /** An AI reply is being generated on the server (no placeholder message is created). */
+  aiPending?: boolean;
 }) {
   const entries: Entry[] = [
     ...messages.map((message): Entry => ({
@@ -54,7 +75,7 @@ export function ConversationTimeline({
       })),
   ].sort((a, b) => a.at - b.at);
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && pending.length === 0 && !aiPending) {
     return <p className="text-muted-foreground py-8 text-center text-sm">No messages yet.</p>;
   }
 
@@ -86,6 +107,48 @@ export function ConversationTimeline({
           </li>
         );
       })}
+      {pending.map((item) => (
+        <li key={item.clientId} className="flex flex-col gap-1">
+          <article
+            aria-label={
+              item.type === "INTERNAL_NOTE" ? "Internal note (not sent)" : "Message (not sent)"
+            }
+            aria-busy={item.status === "sending"}
+            className={cn(
+              "flex max-w-[85%] flex-col gap-1 rounded-xl border px-3 py-2 opacity-80",
+              item.type === "INTERNAL_NOTE"
+                ? "border-chart-2 bg-chart-2/10 self-center border-dashed"
+                : item.from === "CUSTOMER"
+                  ? "bg-muted self-start"
+                  : "bg-accent self-end",
+              item.status === "failed" && "border-destructive",
+            )}
+          >
+            <p className="text-sm break-words whitespace-pre-wrap">{item.body}</p>
+            {item.status === "sending" ? (
+              <p className="text-muted-foreground text-xs">Sending...</p>
+            ) : (
+              <p
+                role="alert"
+                className="text-destructive flex flex-wrap items-center gap-2 text-xs"
+              >
+                Failed to send: {item.error}
+                <Button size="xs" variant="outline" onClick={() => onRetry?.(item.clientId)}>
+                  Retry
+                </Button>
+                <Button size="xs" variant="ghost" onClick={() => onDiscard?.(item.clientId)}>
+                  Discard
+                </Button>
+              </p>
+            )}
+          </article>
+        </li>
+      ))}
+      {aiPending ? (
+        <li role="status" className="text-muted-foreground self-end text-xs">
+          AI Agent is writing a reply...
+        </li>
+      ) : null}
     </ol>
   );
 }

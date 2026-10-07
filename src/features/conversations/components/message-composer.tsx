@@ -1,13 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
+import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { apiRequest } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import type { SendMessageInput } from "../api/types";
 import { MAX_MESSAGE_LENGTH } from "../schemas";
 
 type Mode = "reply" | "note" | "customer";
@@ -33,58 +32,50 @@ const MODES: { id: Mode; label: string; placeholder: string; submit: string }[] 
   },
 ];
 
-const PAYLOAD: Record<Mode, { type: "MESSAGE" | "INTERNAL_NOTE"; from: "USER" | "CUSTOMER" }> = {
+const PAYLOAD: Record<Mode, Pick<SendMessageInput, "type" | "from">> = {
   reply: { type: "MESSAGE", from: "USER" },
   note: { type: "INTERNAL_NOTE", from: "USER" },
   customer: { type: "MESSAGE", from: "CUSTOMER" },
 };
 
+/**
+ * The composer only collects input. Submitting hands it to the outbox (owned by the conversation
+ * pane), which shows the message immediately as "Sending..." in the timeline and handles
+ * success, failure and retry. The textarea therefore clears at once.
+ */
 export function MessageComposer({
-  conversationId,
   resolved,
+  onSend,
 }: {
-  conversationId: string;
   /** Agent replies are blocked on resolved conversations; notes and customer messages are not. */
   resolved: boolean;
+  onSend: (input: SendMessageInput) => void;
 }) {
-  const router = useRouter();
-  const formRef = useRef<HTMLFormElement>(null);
   const [mode, setMode] = useState<Mode>("reply");
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [, startTransition] = useTransition();
+  const formRef = useRef<HTMLFormElement>(null);
 
   const current = MODES.find((candidate) => candidate.id === mode)!;
   const blocked = mode === "reply" && resolved;
   const isNote = mode === "note";
 
-  async function submit(event?: FormEvent) {
+  function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (busy || blocked) return;
+    if (blocked) return;
     if (!body.trim()) {
       setError("Message cannot be empty");
       return;
     }
-    setBusy(true);
     setError(null);
-    const result = await apiRequest(`/api/conversations/${conversationId}/messages`, {
-      method: "POST",
-      body: { body, ...PAYLOAD[mode] },
-    });
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.fieldErrors.body ?? result.message);
-      return;
-    }
+    onSend({ body, ...PAYLOAD[mode] });
     setBody("");
-    startTransition(() => router.refresh());
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      void submit();
+      submit();
     }
   }
 
@@ -149,8 +140,8 @@ export function MessageComposer({
 
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground text-xs">Ctrl/Cmd + Enter to send</span>
-        <Button type="submit" size="sm" disabled={busy || blocked}>
-          {busy ? "Sending..." : current.submit}
+        <Button type="submit" size="sm" disabled={blocked}>
+          {current.submit}
         </Button>
       </div>
     </form>

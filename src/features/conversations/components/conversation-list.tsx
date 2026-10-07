@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { ConversationDto } from "@/server/repositories/conversations";
+import type { ConversationJson } from "../api/types";
 import { ConversationPriorityBadge, ConversationStatusBadge } from "./conversation-badges";
 
 type Props = {
-  conversations: ConversationDto[];
+  conversations: ConversationJson[];
   selectedId: string | null;
   /** Builds the link that opens a conversation while preserving the current view/search. */
   hrefFor: (conversationId: string) => string;
@@ -74,7 +74,7 @@ export function ConversationList({ conversations, selectedId, hrefFor }: Props) 
   );
 }
 
-function previewPrefix(sender: ConversationDto["lastMessageSenderType"]): string {
+function previewPrefix(sender: ConversationJson["lastMessageSenderType"]): string {
   if (sender === "CUSTOMER" || sender === null) return "";
   return sender === "AI_AGENT" ? "AI: " : "You: ";
 }
