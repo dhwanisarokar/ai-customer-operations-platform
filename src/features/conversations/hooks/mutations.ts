@@ -11,6 +11,7 @@ import {
 import { useOutbox } from "@/lib/query/outbox";
 import type {
   AiDraftResponse,
+  ApprovalActionResponse,
   ConversationDetailResponse,
   ConversationJson,
   ConversationListResponse,
@@ -294,6 +295,7 @@ export function useMessageOutbox(conversationId: string) {
  * "Generating..." state; it is UI state, never a message.
  */
 export function useAiDraft(conversationId: string) {
+  const queryClient = useQueryClient();
   const org = useOrganizationScope();
 
   return useMutation({
@@ -302,5 +304,45 @@ export function useAiDraft(conversationId: string) {
       fetchJson<AiDraftResponse>(`/api/conversations/${conversationId}/ai-draft`, {
         method: "POST",
       }),
+    // The draft itself stores nothing. Only when the AI asked for changes is there new server state
+    // (pending approvals) to show.
+    onSuccess: (draft) => {
+      if (draft.approvals.length > 0) {
+        void queryClient.invalidateQueries({
+          queryKey: conversationsKeys.approvals(org, conversationId),
+        });
+      }
+    },
+  });
+}
+
+/**
+ * Approve or reject a pending AI action. NOT optimistic: the change is executed by the server (and
+ * can be refused: expired, already handled, no permission), so the UI waits for the real result.
+ * Afterwards everything an executed change can touch is refetched.
+ */
+export function useDecideApproval(conversationId: string) {
+  const queryClient = useQueryClient();
+  const org = useOrganizationScope();
+
+  return useMutation({
+    mutationFn: ({ approvalId, action }: { approvalId: string; action: "approve" | "reject" }) =>
+      fetchJson<ApprovalActionResponse>(`/api/ai-approvals/${approvalId}/${action}`, {
+        method: "POST",
+      }),
+    onSettled: () => {
+      void Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: conversationsKeys.approvals(org, conversationId),
+        }),
+        queryClient.invalidateQueries({ queryKey: conversationsKeys.detail(org, conversationId) }),
+        queryClient.invalidateQueries({ queryKey: conversationsKeys.lists(org) }),
+        queryClient.invalidateQueries({
+          queryKey: [...conversationsKeys.item(org, conversationId), "events"],
+        }),
+        // An approved updateCustomer changes customer data shown elsewhere.
+        queryClient.invalidateQueries({ queryKey: customersKeys.all(org) }),
+      ]);
+    },
   });
 }

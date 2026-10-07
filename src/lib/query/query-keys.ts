@@ -48,6 +48,8 @@ export const conversationsKeys = {
     [...conversationsKeys.item(org, id), "messages"] as const,
   events: (org: OrgId, id: string, params: object) =>
     [...conversationsKeys.item(org, id), "events", params] as const,
+  /** Pending AI actions of one conversation. */
+  approvals: (org: OrgId, id: string) => [...conversationsKeys.item(org, id), "approvals"] as const,
 };
 
 export const knowledgeKeys = {
@@ -67,4 +69,6 @@ export const mutationKeys = {
   customerTags: (org: OrgId, id: string) =>
     [...customersKeys.item(org, id), "mutation", "tags"] as const,
   aiDraft: (org: OrgId, id: string) => mutationKeys.conversation(org, id, "ai-draft"),
+  approval: (org: OrgId, approvalId: string, action: "approve" | "reject") =>
+    [...scope(org), "ai-approvals", approvalId, "mutation", action] as const,
 };

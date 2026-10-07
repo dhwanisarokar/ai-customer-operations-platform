@@ -52,6 +52,8 @@ model Organization {
   readStates         ConversationReadState[]
   knowledgeDocuments KnowledgeDocument[]
   knowledgeChunks    KnowledgeDocumentChunk[]
+  aiActionApprovals  AiActionApproval[]
+  aiToolAudits       AiToolAudit[]
 
   @@map("organizations")
 }
@@ -291,6 +293,7 @@ model Conversation {
   assignee     Membership?             @relation(fields: [assignedToUserId, organizationId], references: [userId, organizationId], onDelete: NoAction)
   messages     Message[]
   events       ConversationEvent[]
+  aiApprovals  AiActionApproval[]
   readStates   ConversationReadState[]
 
   @@unique([id, organizationId])
@@ -427,4 +430,83 @@ model KnowledgeDocumentChunk {
   // deletes. See docs/rag.md for why there is deliberately no ANN (HNSW/IVFFlat) index yet.
   @@index([organizationId, documentId])
   @@map("knowledge_document_chunks")
+}
+
+// ---- AI tools: approvals and audit (Phase 5) ---------------------------------------------------
+
+enum AiToolRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// PENDING -> APPROVED -> EXECUTED | FAILED; PENDING -> REJECTED | EXPIRED. Terminal states never
+// change again (enforced by guarded updates in the application and CHECK constraints).
+enum AiApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  EXECUTED
+  FAILED
+}
+
+enum AiToolAuditOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
+  APPROVAL_REQUESTED
+}
+
+// A mutation proposed by the AI that a human must approve before application code executes it.
+// Stores the VALIDATED tool input and a display preview built by the application, never prompts or
+// model reasoning. User ids are plain columns (history outlives users, like event actors).
+model AiActionApproval {
+  id                String           @id @default(uuid()) @db.Uuid
+  organizationId    String           @db.Uuid
+  conversationId    String?          @db.Uuid
+  requestedByUserId String           @db.Uuid
+  toolName          String
+  input             Json
+  // What the approver sees: { title, lines: [{ label, from, to }] }. Computed by the application.
+  preview           Json
+  riskLevel         AiToolRiskLevel
+  status            AiApprovalStatus @default(PENDING)
+  createdAt         DateTime         @default(now())
+  expiresAt         DateTime
+  approvedAt        DateTime?
+  approvedByUserId  String?          @db.Uuid
+  rejectedAt        DateTime?
+  rejectedByUserId  String?          @db.Uuid
+  executedAt        DateTime?
+  // Safe error code only (e.g. EXECUTION_FAILED); never raw database or provider errors.
+  failureCode       String?
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@index([organizationId, conversationId, status, createdAt(sort: Desc)])
+  @@index([organizationId, status, expiresAt])
+  @@map("ai_action_approvals")
+}
+
+// One row per tool execution attempt (reads, approved mutations, denials, approval requests).
+// No inputs, results or prompts: only who/what/outcome.
+model AiToolAudit {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @db.Uuid
+  conversationId String?            @db.Uuid
+  actorUserId    String             @db.Uuid
+  toolName       String
+  riskLevel      AiToolRiskLevel
+  approvalId     String?            @db.Uuid
+  outcome        AiToolAuditOutcome
+  errorCode      String?
+  createdAt      DateTime           @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([organizationId, approvalId])
+  @@map("ai_tool_audits")
 }

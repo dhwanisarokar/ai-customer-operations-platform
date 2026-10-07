@@ -14,6 +14,7 @@ import {
   DEFAULT_MESSAGES_LIMIT,
   MAX_MESSAGES_LIMIT,
   type AiDraftResponse,
+  type ApprovalsResponse,
   type ConversationDetailResponse,
   type ConversationEventsResponse,
   type MembersResponse,
@@ -21,6 +22,7 @@ import {
 } from "../api/types";
 import { useMarkConversationRead, useMessageOutbox } from "../hooks/mutations";
 import { useConversation, useConversationEvents, useConversationMessages } from "../hooks/queries";
+import { AiApprovalCards } from "./ai-approval-cards";
 import { AskAiButton } from "./ask-ai-button";
 import { ConversationPriorityBadge, ConversationStatusBadge } from "./conversation-badges";
 import { ConversationControls } from "./conversation-controls";
@@ -35,6 +37,7 @@ type Props = {
     messages: MessagesResponse;
     events: ConversationEventsResponse;
     members: MembersResponse;
+    approvals: ApprovalsResponse;
   };
   currentUserId: string;
   /** UI hints computed by the server. The API enforces every permission regardless. */
@@ -293,6 +296,7 @@ export function ConversationPane({
 
       {can.send ? (
         <div className="border-border flex shrink-0 flex-col gap-2 border-t p-2 md:gap-3 md:p-3">
+          <AiApprovalCards conversationId={conversationId} initial={initial.approvals.approvals} />
           <AskAiButton
             conversationId={conversationId}
             disabled={resolved}

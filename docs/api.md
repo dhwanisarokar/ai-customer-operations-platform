@@ -296,10 +296,34 @@ Permanently deletes the document and its chunks. `204`. Errors: 401, 403, 404.
 
 No parameters (empty body or `{}`; anything else is `400`). Retrieves this organization's published
 knowledge and asks the AI agent for a suggested reply. **Read-only**: nothing is stored and nothing is
-sent. `200 { draft, grounded, intent, sources: [{documentId, documentTitle, chunkId, chunkIndex}] }`.
-A person reviews/edits the draft and sends it with `POST .../messages` (an ordinary message from that
+sent. `200 { draft, grounded, intent, sources: [{documentId, documentTitle, chunkId, chunkIndex}], approvals: [Approval] }`.
+`approvals` lists changes the AI requested that now wait for a human (see below); nothing in them has
+been applied. A person reviews/edits the draft and sends it with `POST .../messages` (an ordinary message from that
 member). Details: [ai-agent.md](ai-agent.md).
 
 Errors: 400, 401, 404, 409 (resolved; no customer message to answer; another draft in flight),
 502 `ai_unavailable` / `ai_invalid_response` / `ai_embedding_failed`, 503 `ai_not_configured`,
 504 `ai_timeout`. Provider details are never in the response.
+
+## AI action approvals
+
+An **Approval** is `{ id, conversationId, toolName, riskLevel, status, preview: { title, lines: [{label,
+from, to}] }, requestedByUserId, createdAt, expiresAt, failureCode }`. Statuses: `PENDING`, `APPROVED`,
+`REJECTED`, `EXPIRED`, `EXECUTED`, `FAILED`. Details: [ai-tools.md](ai-tools.md).
+
+### `GET /api/conversations/:conversationId/ai-approvals` (view_conversations)
+
+`200 { approvals }`: pending, unexpired approvals of the conversation (stale ones are marked
+`EXPIRED`). Errors: 401, 404.
+
+### `POST /api/ai-approvals/:approvalId/approve` (the tool's permission, e.g. update_customers)
+
+No body. Re-checks authentication, membership, permission, tenant, status and expiry; claims the
+approval atomically and executes the action as the approver. `200 { approval }` with status
+`EXECUTED` or `FAILED` (not retried). Errors: 401, 403 (no permission), 404 (unknown or another
+organization's approval), 409 `approval_expired` / already handled.
+
+### `POST /api/ai-approvals/:approvalId/reject`
+
+No body. Allowed for the requester or anyone allowed to run the tool. `200 { approval }` (`REJECTED`);
+nothing is executed. Errors as above.

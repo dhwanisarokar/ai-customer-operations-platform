@@ -5,7 +5,9 @@ import {
   toCustomerContext,
 } from "@/server/ai/agent/context";
 import { runSupportAgent } from "@/server/ai/agent/agent";
-import { AGENT_LIMITS } from "@/server/ai/config";
+import { AGENT_LIMITS, aiToolsEnabled } from "@/server/ai/config";
+import { runToolPass } from "@/server/ai/tools/loop";
+import type { ApprovalDto } from "@/server/ai/tools/types";
 import { applyConversationPolicy } from "@/server/ai/policy/responses";
 import type { OrganizationContext } from "@/server/auth/context";
 import { ConflictError, NotFoundError } from "@/server/errors";
@@ -25,6 +27,11 @@ export type AiDraft = {
   intent: string;
   /** Knowledge the draft is based on (validated against what was really retrieved). */
   sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
+  /**
+   * Changes the AI asked for that now WAIT for a human to approve. Nothing has been applied;
+   * approving (or rejecting) goes through the approvals API.
+   */
+  approvals: ApprovalDto[];
 };
 
 /**
@@ -83,14 +90,27 @@ export async function generateAiDraft(
         { organizationId, conversationId, actorId: ctx.user.id, intent: decision.intent },
         "ai draft created",
       );
-      return { draft: decision.reply, grounded: false, intent: decision.intent, sources: [] };
+      return {
+        draft: decision.reply,
+        grounded: false,
+        intent: decision.intent,
+        sources: [],
+        approvals: [],
+      };
     }
+
+    // Tool pass: the model may request lookups (run now) or changes (become pending approvals).
+    // Authorization and risk policy are deterministic application code; see src/server/ai/tools.
+    const toolPass = aiToolsEnabled()
+      ? await runToolPass({ ctx, conversationId }, { customerId: customer.id, messages })
+      : null;
 
     const result = await runSupportAgent({
       organizationId,
       customer: toCustomerContext(customer),
       messages,
       retrievalQuery,
+      toolFindings: toolPass?.findings ?? null,
     });
 
     // Ids and measurements only: never the prompt, the draft or the customer's words.
@@ -107,6 +127,8 @@ export async function generateAiDraft(
         latencyMs: result.latencyMs,
         totalTokens: result.usage.totalTokens,
         validation: result.validation,
+        toolCalls: toolPass?.calls.length ?? 0,
+        approvals: toolPass?.approvals.length ?? 0,
       },
       "ai draft created",
     );
@@ -120,6 +142,7 @@ export async function generateAiDraft(
         chunkId: source.chunkId,
         chunkIndex: source.chunkIndex,
       })),
+      approvals: toolPass?.approvals ?? [],
     };
   } finally {
     inFlight.delete(lockKey);

@@ -16,7 +16,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const draft = { draft: "Hi!", grounded: false, intent: "CONVERSATIONAL", sources: [] };
+const draft = {
+  draft: "Hi!",
+  grounded: false,
+  intent: "CONVERSATIONAL",
+  sources: [],
+  approvals: [],
+};
 
 describe("AskAiButton", () => {
   it("calls the server API (never an AI provider) with no parameters and hands over the draft", async () => {

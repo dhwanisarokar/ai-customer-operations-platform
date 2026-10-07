@@ -124,3 +124,12 @@ search_path.
   which can under-return for small tenants in a multi-tenant table. Search is an exact scan of one
   organization's chunks. See [rag.md](rag.md#why-no-hnswivfflat-index-yet) for when to revisit.
 - Cosine distance (`<=>`) with L2-normalized vectors; 768 dimensions (rationale in [rag.md](rag.md)).
+
+## AI tool approvals and audit (Phase 5)
+
+- `ai_action_approvals`: pending/decided AI-requested changes (`toolName`, validated `input`, display
+  `preview`, `riskLevel`, `status`, `expiresAt`, approver/rejecter ids, `executedAt`, `failureCode`).
+  Tenant-owned; `(conversationId, organizationId)` is a composite foreign key to `conversations`.
+  CHECK constraints keep the lifecycle consistent (see migration `ai_tools_check_constraints`).
+- `ai_tool_audits`: one row per tool attempt (actor, tool, risk, approval id, outcome, error code).
+  No payloads. See [ai-tools.md](ai-tools.md).

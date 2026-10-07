@@ -2,6 +2,7 @@ import type { Serialized } from "@/lib/query/serialize";
 import type { Page } from "@/server/http/pagination";
 import type { ConversationEventRecord } from "@/server/repositories/conversation-events";
 import type { ConversationDto } from "@/server/repositories/conversations";
+import type { ApprovalDto } from "@/server/ai/tools/types";
 import type { listMessages } from "@/server/services/conversation-messages";
 import type { listMembers } from "@/server/services/memberships";
 
@@ -12,6 +13,11 @@ export type MessagesResponse = Serialized<Awaited<ReturnType<typeof listMessages
 export type MessageJson = MessagesResponse["items"][number];
 export type ConversationEventsResponse = Serialized<Page<ConversationEventRecord>>;
 export type MembersResponse = { members: Serialized<Awaited<ReturnType<typeof listMembers>>> };
+
+/** A change the AI asked for that waits for a human (see docs/ai-tools.md). */
+export type ApprovalJson = Serialized<ApprovalDto>;
+export type ApprovalsResponse = { approvals: ApprovalJson[] };
+export type ApprovalActionResponse = { approval: ApprovalJson };
 
 export type MessagesParams = { limit: number; includeInternal: boolean };
 export type EventsParams = { page: number; pageSize: number };
@@ -29,6 +35,8 @@ export type AiDraftResponse = {
   grounded: boolean;
   intent: string;
   sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
+  /** Changes the AI requested; pending a human decision (nothing has been applied). */
+  approvals: ApprovalJson[];
 };
 
 /** What the composer submits. `type` and `from` mirror the API contract. */

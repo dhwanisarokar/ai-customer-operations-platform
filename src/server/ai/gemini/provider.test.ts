@@ -257,3 +257,107 @@ describe("formatForEmbedding", () => {
     );
   });
 });
+
+describe("generateWithTools (function calling)", () => {
+  const tools = [
+    {
+      name: "getCustomer",
+      description: "Look up a customer",
+      parametersJsonSchema: { type: "object", properties: { customerId: { type: "string" } } },
+    },
+  ];
+  const request = {
+    systemInstruction: "sys",
+    turns: [{ role: "user" as const, text: "hi" }],
+    tools,
+    timeoutMs: 1000,
+  };
+
+  it("sends declarations only, disables automatic function calling and returns the requested calls", async () => {
+    generateContent.mockResolvedValue({
+      candidates: [
+        {
+          content: {
+            role: "model",
+            parts: [{ functionCall: { name: "getCustomer", args: { customerId: "c1" } } }],
+          },
+          finishReason: "STOP",
+        },
+      ],
+      usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 },
+    });
+    const result = await new GeminiProvider(config).generateWithTools(request);
+
+    const sent = generateContent.mock.calls[0][0];
+    expect(sent.model).toBe("gen-model");
+    expect(sent.config.tools).toEqual([
+      {
+        functionDeclarations: [
+          {
+            name: "getCustomer",
+            description: "Look up a customer",
+            parametersJsonSchema: tools[0].parametersJsonSchema,
+          },
+        ],
+      },
+    ]);
+    expect(sent.config.automaticFunctionCalling).toEqual({ disable: true });
+    expect(result.toolCalls).toEqual([{ name: "getCustomer", args: { customerId: "c1" } }]);
+    expect(result.text).toBe("");
+    expect(result.usage).toEqual({ inputTokens: 5, outputTokens: 2, totalTokens: 7 });
+    expect(result.providerData).toMatchObject({ role: "model" });
+  });
+
+  it("returns plain text when the model asks for no tool, ignoring thought parts", async () => {
+    generateContent.mockResolvedValue({
+      candidates: [
+        {
+          content: {
+            role: "model",
+            parts: [{ text: "secret thoughts", thought: true }, { text: "DONE" }],
+          },
+        },
+      ],
+    });
+    const result = await new GeminiProvider(config).generateWithTools(request);
+    expect(result).toMatchObject({ text: "DONE", toolCalls: [] });
+  });
+
+  it("maps tool results back as one user turn and replays the model content verbatim", async () => {
+    generateContent.mockResolvedValue({ candidates: [{ content: { parts: [{ text: "ok" }] } }] });
+    const modelContent = {
+      role: "model",
+      parts: [{ functionCall: { name: "a", args: {} } }, { functionCall: { name: "b", args: {} } }],
+    };
+    await new GeminiProvider(config).generateWithTools({
+      ...request,
+      turns: [
+        { role: "user", text: "hi" },
+        { role: "model", text: "", toolCalls: [], providerData: modelContent },
+        { role: "tool", name: "a", response: { result: 1 } },
+        { role: "tool", name: "b", response: { result: 2 } },
+      ],
+    });
+    const contents = generateContent.mock.calls[0][0].contents;
+    expect(contents).toHaveLength(3);
+    expect(contents[1]).toBe(modelContent);
+    expect(contents[2]).toEqual({
+      role: "user",
+      parts: [
+        { functionResponse: { name: "a", response: { result: 1 } } },
+        { functionResponse: { name: "b", response: { result: 2 } } },
+      ],
+    });
+  });
+
+  it("maps failures to the same safe errors as normal generation", async () => {
+    generateContent.mockResolvedValue({ candidates: [{ content: { parts: [] } }] });
+    await expect(new GeminiProvider(config).generateWithTools(request)).rejects.toBeInstanceOf(
+      AiInvalidResponseError,
+    );
+    generateContent.mockRejectedValue(new Error("503 key=SECRET"));
+    const error = await new GeminiProvider(config).generateWithTools(request).catch((e) => e);
+    expect(error).toBeInstanceOf(AiProviderError);
+    expect(String(error.message)).not.toContain("SECRET");
+  });
+});

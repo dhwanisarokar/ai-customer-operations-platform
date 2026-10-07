@@ -64,9 +64,9 @@ rule (an answer without a valid cited source is replaced by this fallback) is un
 
 ## System prompt version
 
-`AI_SUPPORT_AGENT_V1` is **kept**. The policy runs before the model and the model-facing instructions
-did not change, so there is nothing to re-version. Only the fallback string changed. Stored messages
-from direct replies carry `CONVERSATION_POLICY_V1` instead.
+`AI_SUPPORT_AGENT_V1` was kept in Phase 4.6 (the policy runs before the model). Phase 5 bumped it to
+`AI_SUPPORT_AGENT_V2`: the prompt gained a rule about the `<tool_results>` data section. Messages that
+are answered directly by the policy skip the tool pass and the model entirely.
 
 ## Why greetings avoid RAG
 

@@ -16,6 +16,7 @@ import {
 } from "@/server/services/conversation-messages";
 import { getConversation, listConversations } from "@/server/services/conversations";
 import { getCustomer360 } from "@/server/services/customers";
+import { listPendingApprovals } from "@/server/services/ai-approvals";
 import { listMembers } from "@/server/services/memberships";
 import { seedConversation, setupConversationTenants } from "../helpers/conversations";
 import { describeDb, disconnectDatabase, resetDatabase } from "../helpers/db";
@@ -48,6 +49,7 @@ describeDb("inbox server rendering", () => {
       messages: await listMessages(ctx, conversationId, { limit: 50, includeInternal: true }),
       events: await listConversationEvents(ctx, conversationId, DEFAULT_EVENTS_PARAMS),
       members: { members: await listMembers(ctx) },
+      approvals: { approvals: await listPendingApprovals(ctx, conversationId) },
     });
     return renderToStaticMarkup(
       <QueryProvider organizationId={ctx.organization.id}>

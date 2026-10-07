@@ -22,6 +22,13 @@ off-topic requests and obvious injection attempts get fixed replies (no embeddin
 call; still only a draft); everything else runs the pipeline below unchanged. See
 [ai-conversation-policy](ai-conversation-policy.md).
 
+## Tools (Phase 5)
+
+For support questions the draft endpoint first runs a bounded **tool pass**: the model may request
+lookups (run immediately) or changes (become pending human approvals). The results are added to the
+draft prompt as data. The model never executes or authorizes anything. See [ai-tools.md](ai-tools.md).
+The provider interface gained `generateWithTools` (Gemini function calling).
+
 ## Provider abstraction
 
 Application code depends on `AIProvider` (`generateResponse`, `generateEmbeddings`), never on a
@@ -73,8 +80,8 @@ Flow:
 6. Retrieve published knowledge for **this organization** above the threshold ([rag.md](rag.md)).
 7. Build the delimited prompt and call Gemini with structured output (JSON schema).
 8. Validate the response (below).
-9. Return `{ draft, grounded, intent, sources }`. **Nothing is written**: no message, no counters, no
-   event, no read-state change. The log line carries ids, `intent` and measurements only.
+9. Return `{ draft, grounded, intent, sources, approvals }`. **No message is written** (no counters, no
+   conversation event, no read-state change); only tool approvals/audit rows may be created. The log line carries ids, `intent` and measurements only.
 
 ### What the model is given (and not given)
 
@@ -98,7 +105,7 @@ user id on non-USER senders, so `AI_AGENT` messages from before Phase 4.9 can ne
 
 ## System prompt and structure
 
-`src/server/ai/agent/prompts.ts` holds `AI_SUPPORT_AGENT_V1`: role and tone; grounding ("answer only
+`src/server/ai/agent/prompts.ts` holds `AI_SUPPORT_AGENT_V2`: role and tone; grounding ("answer only
 from `<knowledge_context>`, never invent policy; if it is not there, say you lack the information
 and that a team member will follow up"); uncertainty; untrusted content; privacy; no actions;
 output format. It contains no customer or knowledge text. Change it by adding a new version, so

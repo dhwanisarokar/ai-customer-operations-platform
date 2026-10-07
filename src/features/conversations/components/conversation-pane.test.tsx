@@ -25,6 +25,7 @@ const initial = {
   },
   events: { items: [], page: 1, pageSize: 100, total: 0, totalPages: 1 },
   members: { members: [] },
+  approvals: { approvals: [] },
 } as unknown as React.ComponentProps<typeof ConversationPane>["initial"];
 
 function renderPane() {
@@ -177,8 +178,15 @@ describe("ConversationPane", () => {
       grounded: true,
       intent: "SUPPORT",
       sources: [{ documentId: "d1", documentTitle: "Refund policy", chunkId: "k1", chunkIndex: 0 }],
+      approvals: [],
     };
-    const ungroundedDraft = { draft: "Not sure.", grounded: false, intent: "SUPPORT", sources: [] };
+    const ungroundedDraft = {
+      draft: "Not sure.",
+      grounded: false,
+      intent: "SUPPORT",
+      sources: [],
+      approvals: [],
+    };
     const draftRoute = (body: unknown) => ({
       ...baseRoutes(),
       "POST /api/conversations/c1/ai-draft": () => json(200, body),
@@ -294,6 +302,45 @@ describe("ConversationPane", () => {
       expect(screen.queryByRole("status", { name: "AI suggested reply" })).not.toBeInTheDocument();
       expect(screen.getByRole("textbox")).toHaveValue("my own text");
       expect(screen.getByRole("button", { name: "Ask AI" })).toBeEnabled();
+    });
+
+    it("when the AI requests a change, an approval card appears and the draft flow still works", async () => {
+      const pendingApproval = {
+        id: "a1",
+        conversationId: "c1",
+        toolName: "changeConversationStatus",
+        riskLevel: "MEDIUM",
+        status: "PENDING",
+        preview: {
+          title: "Change conversation status",
+          lines: [{ label: "Status", from: "Open", to: "Resolved" }],
+        },
+        requestedByUserId: "u1",
+        createdAt: "2026-01-01T10:00:00.000Z",
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        failureCode: null,
+      };
+      mockApi({
+        // More specific routes first: matching is by prefix.
+        "GET /api/conversations/c1/ai-approvals": () => json(200, { approvals: [pendingApproval] }),
+        ...baseRoutes(),
+        "POST /api/conversations/c1/ai-draft": () =>
+          json(200, {
+            ...ungroundedDraft,
+            draft: "A team member will review.",
+            approvals: [pendingApproval],
+          }),
+      });
+      const user = userEvent.setup();
+      renderPane();
+      expect(screen.queryByRole("region", { name: "AI action requires approval" })).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Ask AI" }));
+
+      const card = await screen.findByRole("region", { name: "AI action requires approval" });
+      expect(card).toHaveTextContent("Change conversation status");
+      // The suggested reply is still just a draft in the single compose box.
+      expect(await screen.findByDisplayValue("A team member will review.")).toBeInTheDocument();
+      expect(screen.getAllByRole("textbox")).toHaveLength(1);
     });
   });
 });

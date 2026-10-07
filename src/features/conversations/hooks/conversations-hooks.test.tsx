@@ -464,6 +464,7 @@ describe("Ask AI (generates a draft; stores nothing)", () => {
     grounded: true,
     intent: "SUPPORT",
     sources: [{ documentId: "d1", documentTitle: "Refund policy", chunkId: "k1", chunkIndex: 0 }],
+    approvals: [],
   };
   const key = conversationsKeys.messages(TEST_ORG, "c1", { limit: 50, includeInternal: true });
   const seed = (client: ReturnType<typeof createTestQueryClient>) =>

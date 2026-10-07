@@ -16,6 +16,7 @@ import { requirePageContext } from "@/server/auth/page-context";
 import { NotFoundError } from "@/server/errors";
 import { listConversationEvents, listMessages } from "@/server/services/conversation-messages";
 import { getConversation, listConversations } from "@/server/services/conversations";
+import { listPendingApprovals } from "@/server/services/ai-approvals";
 import { listMembers } from "@/server/services/memberships";
 
 export const dynamic = "force-dynamic";
@@ -143,13 +144,20 @@ export default async function InboxPage({
 
 async function loadSelected(ctx: OrganizationContext, conversationId: string) {
   try {
-    const [conversation, messages, events, members] = await Promise.all([
+    const [conversation, messages, events, members, approvals] = await Promise.all([
       getConversation(ctx, conversationId),
       listMessages(ctx, conversationId, { limit: DEFAULT_MESSAGES_LIMIT, includeInternal: true }),
       listConversationEvents(ctx, conversationId, DEFAULT_EVENTS_PARAMS),
       listMembers(ctx),
+      listPendingApprovals(ctx, conversationId),
     ]);
-    return serialize({ conversation: { conversation }, messages, events, members: { members } });
+    return serialize({
+      conversation: { conversation },
+      messages,
+      events,
+      members: { members },
+      approvals: { approvals },
+    });
   } catch (error) {
     if (error instanceof NotFoundError) return null;
     throw error;

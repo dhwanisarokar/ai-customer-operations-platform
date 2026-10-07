@@ -78,7 +78,7 @@ describeDb("knowledge and AI UI server rendering", () => {
     const draft = await generateAiDraft(ctx, conversation.id);
 
     const html = renderToStaticMarkup(
-      <MessageComposer resolved={false} onSend={() => {}} suggestion={{ ...draft }} />,
+      <MessageComposer resolved={false} onSend={() => {}} suggestion={serialize(draft)} />,
     );
     expect(html).toContain("AI suggested reply");
     expect(html).toContain("Based on:");
@@ -94,6 +94,7 @@ describeDb("knowledge and AI UI server rendering", () => {
       messages: await listMessages(ctx, conversation.id, { limit: 50, includeInternal: true }),
       events: await listConversationEvents(ctx, conversation.id, DEFAULT_EVENTS_PARAMS),
       members: { members: await listMembers(ctx) },
+      approvals: { approvals: [] },
     });
     const pane = renderToStaticMarkup(
       <QueryProvider organizationId={ctx.organization.id}>

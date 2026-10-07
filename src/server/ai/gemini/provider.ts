@@ -7,9 +7,12 @@ import type {
   EmbedResult,
   GenerateRequest,
   GenerateResult,
+  ToolGenerateRequest,
+  ToolGenerateResult,
 } from "../types";
 import { geminiEmbed } from "./embeddings";
 import { geminiGenerate } from "./generation";
+import { geminiGenerateWithTools } from "./tools";
 
 /** The only module (with its siblings) that talks to the Gemini SDK. */
 export class GeminiProvider implements AIProvider {
@@ -23,6 +26,10 @@ export class GeminiProvider implements AIProvider {
 
   generateResponse(request: GenerateRequest): Promise<GenerateResult> {
     return geminiGenerate(this.ai, this.config.generationModel, request);
+  }
+
+  generateWithTools(request: ToolGenerateRequest): Promise<ToolGenerateResult> {
+    return geminiGenerateWithTools(this.ai, this.config.generationModel, request);
   }
 
   generateEmbeddings(request: EmbedRequest): Promise<EmbedResult> {

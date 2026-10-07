@@ -4,6 +4,9 @@ import type {
   EmbedResult,
   GenerateRequest,
   GenerateResult,
+  ToolCallRequest,
+  ToolGenerateRequest,
+  ToolGenerateResult,
 } from "@/server/ai/provider";
 import { setAiProviderForTesting } from "@/server/ai/client";
 
@@ -73,6 +76,18 @@ export class FakeAiProvider implements AIProvider {
   readonly name = "fake";
   generateCalls: GenerateRequest[] = [];
   embedCalls: EmbedRequest[] = [];
+  /** Function-calling requests (the tool pass). Separate from `generateCalls` (the drafting call). */
+  toolRequests: ToolGenerateRequest[] = [];
+  /**
+   * What the model does on each function-calling round (by index). Default: no tool needed.
+   * Return `toolCalls` to make the model REQUEST tools; the application decides what happens.
+   */
+  toolScript:
+    | ((
+        request: ToolGenerateRequest,
+        round: number,
+      ) => { text?: string; toolCalls?: ToolCallRequest[] })
+    | undefined;
 
   /** Overrides (set per test). `undefined` means use the default behaviour. */
   generation: Scripted | undefined;
@@ -99,6 +114,22 @@ export class FakeAiProvider implements AIProvider {
       model: "fake-model",
       provider: "fake",
       latencyMs: 5,
+      finishReason: "STOP",
+      usage: this.usage,
+    };
+  }
+
+  async generateWithTools(request: ToolGenerateRequest): Promise<ToolGenerateResult> {
+    const round = this.toolRequests.length;
+    this.toolRequests.push(request);
+    if (this.generationError) throw this.generationError;
+    const step = this.toolScript?.(request, round) ?? { text: "DONE" };
+    return {
+      text: step.text ?? "",
+      toolCalls: step.toolCalls ?? [],
+      model: "fake-model",
+      provider: "fake",
+      latencyMs: 3,
       finishReason: "STOP",
       usage: this.usage,
     };

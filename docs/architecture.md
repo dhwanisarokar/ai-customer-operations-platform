@@ -41,4 +41,7 @@ src/
   small talk, off-topic and injection attempts without RAG or a model call.
 - Client server-state (TanStack Query, optimistic updates, outbox): [server-state](server-state.md).
   Pages load initial data on the server; client views refetch and mutate through the same REST API.
+- AI tools, deterministic authorization and human approval: [ai-tools](ai-tools.md). The model may
+  request an action; only application code authorizes and executes it. Tools call the existing
+  services (`src/server/ai/tools`), mutations wait in `ai_action_approvals` for a human.
 - `GET /api/health` — returns 200 `{status:"ok"}` or 503 `{status:"degraded"}` depending on DB reachability.

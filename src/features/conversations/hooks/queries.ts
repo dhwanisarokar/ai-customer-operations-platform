@@ -6,6 +6,7 @@ import { useOrganizationScope } from "@/lib/query/query-provider";
 import { conversationsListUrl } from "../api/requests";
 import {
   DEFAULT_EVENTS_PARAMS,
+  type ApprovalsResponse,
   type ConversationDetailResponse,
   type ConversationEventsResponse,
   type ConversationListResponse,
@@ -86,6 +87,18 @@ export function useConversationEvents(
         { signal },
       ),
     staleTime: STALE_TIME.messages,
+    ...options,
+  });
+}
+
+/** Pending AI actions for one conversation. Short stale time: someone else may have decided one. */
+export function useAiApprovals(conversationId: string, options: Options<ApprovalsResponse> = {}) {
+  const org = useOrganizationScope();
+  return useQuery({
+    queryKey: conversationsKeys.approvals(org, conversationId),
+    queryFn: ({ signal }) =>
+      fetchJson<ApprovalsResponse>(`/api/conversations/${conversationId}/ai-approvals`, { signal }),
+    staleTime: STALE_TIME.conversations,
     ...options,
   });
 }

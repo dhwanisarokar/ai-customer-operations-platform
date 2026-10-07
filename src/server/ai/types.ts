@@ -27,6 +27,48 @@ export type GenerateResult = {
   usage: TokenUsage;
 };
 
+/** A function the model may REQUEST. The application decides whether and how it runs. */
+export type ToolDeclaration = {
+  name: string;
+  description: string;
+  parametersJsonSchema: Record<string, unknown>;
+};
+
+export type ToolCallRequest = { name: string; args: Record<string, unknown> };
+
+/** One turn of a tool-calling exchange (provider-neutral). */
+export type ToolTurn =
+  | { role: "user"; text: string }
+  | {
+      role: "model";
+      text: string;
+      toolCalls: ToolCallRequest[];
+      /** Opaque provider content, passed back verbatim on the next call (e.g. thought signatures). */
+      providerData?: unknown;
+    }
+  | { role: "tool"; name: string; response: Record<string, unknown> };
+
+export type ToolGenerateRequest = {
+  systemInstruction: string;
+  turns: ToolTurn[];
+  tools: ToolDeclaration[];
+  temperature?: number;
+  maxOutputTokens?: number;
+  timeoutMs: number;
+};
+
+export type ToolGenerateResult = {
+  /** Text the model produced (may be empty when it only requests tools). */
+  text: string;
+  toolCalls: ToolCallRequest[];
+  providerData?: unknown;
+  model: string;
+  provider: string;
+  latencyMs: number;
+  finishReason: string | null;
+  usage: TokenUsage;
+};
+
 export type EmbeddingPurpose = "document" | "query";
 
 export type EmbedRequest = {
@@ -48,5 +90,10 @@ export type EmbedResult = {
 export interface AIProvider {
   readonly name: string;
   generateResponse(request: GenerateRequest): Promise<GenerateResult>;
+  /**
+   * Generation with function calling. The model may return `toolCalls`; it never executes them.
+   * Callers run the requested tools (deterministically authorized) and send the results back.
+   */
+  generateWithTools(request: ToolGenerateRequest): Promise<ToolGenerateResult>;
   generateEmbeddings(request: EmbedRequest): Promise<EmbedResult>;
 }

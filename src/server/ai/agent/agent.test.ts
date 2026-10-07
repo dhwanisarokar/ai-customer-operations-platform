@@ -56,7 +56,7 @@ describe("runSupportAgent: grounding", () => {
       reply: "Refunds take up to 30 days.",
       grounded: true,
       validation: "ok",
-      promptVersion: "AI_SUPPORT_AGENT_V1",
+      promptVersion: "AI_SUPPORT_AGENT_V2",
       provider: "fake",
       model: "fake-model",
       retrievedChunkIds: ["c1", "c2"],

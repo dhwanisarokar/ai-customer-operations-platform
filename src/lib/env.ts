@@ -20,6 +20,11 @@ const serverSchema = z.object({
   GEMINI_API_KEY: optionalString,
   GEMINI_GENERATION_MODEL: optionalString,
   GEMINI_EMBEDDING_MODEL: optionalString,
+  // "false" turns the AI tool pass off (the draft then uses knowledge only). Default: on.
+  AI_TOOLS_ENABLED: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["true", "false"]).optional(),
+  ),
   RAG_MIN_SIMILARITY: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.coerce.number().min(0).max(1).optional(),

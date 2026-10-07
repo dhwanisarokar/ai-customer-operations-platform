@@ -19,6 +19,8 @@ export type AgentInput = {
   messages: AgentMessage[];
   /** What to search the knowledge base for (derived from the customer's latest messages). */
   retrievalQuery: string;
+  /** Data the application fetched with its own tools (already authorized); optional. */
+  toolFindings?: string | null;
 };
 
 /** A knowledge chunk the answer is based on, with enough metadata for citations and audits. */

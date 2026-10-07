@@ -107,3 +107,10 @@ Asking again replaces the draft. On failure there is no draft and the error show
   post a duplicate (no idempotency key yet).
 - The events timeline fetches a window of 100; the messages view loads the newest 50 ("Load earlier").
 - The Next.js client router cache can briefly show a prior server render before the query refetches.
+
+## AI approvals
+
+`useAiApprovals(conversationId)` reads the pending actions (initial data from the server page) and
+`useDecideApproval` approves/rejects. Not optimistic: the server executes and may refuse. After a
+decision it refetches the approvals, conversation, lists, events and customers. See
+[ai-tools.md](ai-tools.md).

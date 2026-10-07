@@ -140,3 +140,22 @@ in [rag.md](rag.md).
   edit and discard create nothing, asking again replaces the draft, Send to customer goes through the
   optimistic outbox (one sent message), AI failure leaves no draft.
 - `ask-ai-button.test.tsx` and the hook tests cover pending, success and failure of the mutation.
+
+## AI tools and approval (Phase 5)
+
+- `src/server/ai/tools/registry.test.ts`: registry contents, risk/permission mapping, strict input
+  schemas (no organization/user/permission fields, no arbitrary change fields), declarations.
+- `tests/integration/ai-tools.test.ts` (real PostgreSQL, fake provider): read tools and their explicit
+  shapes, cross-tenant isolation, fake `organizationId`, unknown tool and invalid arguments, RBAC with a
+  custom registry, risk policy (mutations create pending approvals and change nothing), the approval
+  lifecycle (approve, reject, expire, double execution, concurrent double click, failure, tenant
+  isolation, database CHECKs), audit rows, the API routes, and the AI draft flow with scripted function
+  calls (read tool result reaches the draft prompt, mutation pauses for approval, 5-call limit, prompt
+  injection cannot execute or cross tenants).
+- `src/server/ai/gemini/provider.test.ts`: function-calling adapter (declarations only, automatic
+  function calling disabled, tool results as one user turn, safe errors).
+- `ai-approval-cards.test.tsx` and `conversation-pane.test.tsx`: pending card, exact change text,
+  approve (loading, single call, result), reject, expired (no buttons), server refusal, failed
+  execution, dismiss, and the card appearing after Ask AI.
+- `FakeAiProvider.toolScript` scripts what the model REQUESTS; the application's decision is what is
+  under test. Real Gemini is never called.

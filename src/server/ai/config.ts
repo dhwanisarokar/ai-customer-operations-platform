@@ -66,3 +66,8 @@ export const AI_TIMEOUTS = {
   generationMs: 30_000,
   embeddingMs: 20_000,
 } as const;
+
+/** Whether the AI may request tools (lookups and approval-gated changes) while drafting. */
+export function aiToolsEnabled(): boolean {
+  return getServerEnv().AI_TOOLS_ENABLED !== "false";
+}

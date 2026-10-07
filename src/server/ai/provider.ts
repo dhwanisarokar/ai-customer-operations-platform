@@ -6,4 +6,9 @@ export type {
   GenerateRequest,
   GenerateResult,
   TokenUsage,
+  ToolCallRequest,
+  ToolDeclaration,
+  ToolGenerateRequest,
+  ToolGenerateResult,
+  ToolTurn,
 } from "./types";
