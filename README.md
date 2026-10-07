@@ -3,8 +3,9 @@
 Multi-tenant SaaS for managing customers, AI agents, conversations, workflows, knowledge bases and
 campaigns. Built as a modular monolith on Next.js, PostgreSQL and (later) BullMQ.
 
-> Status: **Phase 2** — authentication (Clerk), organizations, RBAC and tenant isolation, plus
-> customer management (Customer 360: profiles, tags, notes, timeline, search/filter/pagination).
+> Status: **Phase 3** - authentication (Clerk), organizations, RBAC and tenant isolation, customer
+> management (Customer 360) and conversations with a shared inbox (assignment, status, priority,
+> internal notes, per-member unread, audit events).
 
 ## Stack
 
@@ -41,7 +42,7 @@ npm run dev                 # http://localhost:3000, health: /api/health
 ## Documentation
 
 - [Architecture](docs/architecture.md)
-- [Customer management](docs/customer-management.md)
+- [Customer management](docs/customer-management.md) · [Conversations & inbox](docs/conversations.md)
 - [Authentication](docs/authentication.md) · [Authorization](docs/authorization.md) · [API](docs/api.md)
 - [Database](docs/database.md)
 - [Testing](docs/testing.md)

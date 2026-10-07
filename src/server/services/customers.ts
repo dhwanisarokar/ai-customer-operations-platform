@@ -17,6 +17,7 @@ import {
   type CustomerRecord,
   type UpdateCustomerData,
 } from "@/server/repositories/customers";
+import { listCustomerConversations } from "./conversations";
 import { tagsRepository } from "@/server/repositories/tags";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -24,6 +25,7 @@ const log = createLogger("customers");
 
 const RECENT_ACTIVITIES = 20;
 const RECENT_NOTES = 10;
+const RECENT_CONVERSATIONS = 5;
 
 /** The authenticated user as the actor of timeline entries. */
 export function userActor(ctx: OrganizationContext) {
@@ -163,6 +165,11 @@ export async function getCustomer360(ctx: OrganizationContext, customerId: strin
   const organizationId = ctx.organization.id;
   const customer = await requireCustomer(ctx, customerId);
 
+  // Conversations are only included for members allowed to view them.
+  const conversations = ctx.can("view_conversations")
+    ? await listCustomerConversations(ctx, customerId, RECENT_CONVERSATIONS)
+    : { items: [], total: 0 };
+
   const [tags, activities, notes] = await Promise.all([
     tagsRepository.listForCustomer(organizationId, customerId),
     customerActivitiesRepository.list(organizationId, customerId, {
@@ -177,7 +184,12 @@ export async function getCustomer360(ctx: OrganizationContext, customerId: strin
     tags,
     recentActivities: activities.items,
     notes: notes.items,
-    counts: { activities: activities.total, notes: notes.total },
+    conversations: conversations.items,
+    counts: {
+      activities: activities.total,
+      notes: notes.total,
+      conversations: conversations.total,
+    },
   };
 }
 

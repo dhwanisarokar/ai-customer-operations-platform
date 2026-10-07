@@ -6,6 +6,17 @@ export const formatDate = (value: Date | string) => dateFormat.format(new Date(v
 export const formatDateTime = (value: Date | string) => dateTimeFormat.format(new Date(value));
 export const formatTime = (value: Date | string) => timeFormat.format(new Date(value));
 
+/** Compact relative time for lists: "just now", "5 min ago", "3 h ago", "Yesterday", or a date. */
+export function formatRelative(value: Date | string, now: Date = new Date()): string {
+  const date = new Date(value);
+  const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60 * 24 && dayLabel(date, now) === "Today")
+    return `${Math.floor(minutes / 60)} h ago`;
+  return dayLabel(date, now);
+}
+
 /** "Today", "Yesterday" or a medium date, relative to `now`. */
 export function dayLabel(value: Date | string, now: Date = new Date()): string {
   const date = new Date(value);

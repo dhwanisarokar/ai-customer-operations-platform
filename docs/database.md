@@ -68,3 +68,30 @@ and `status = ARCHIVED` if and only if `archivedAt IS NOT NULL`. `tags.normalize
 checked against `lower(name)` because PostgreSQL and JavaScript lowercase some non-ASCII text
 differently. `customers.updatedAt` has a default and is set by the application on profile edits
 (not Prisma's `@updatedAt`) so timeline bookkeeping never counts as an edit.
+
+## Conversation tables (Phase 3)
+
+| Table                      | Notes                                                                                                                                                                                   |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversations`            | Composite FKs to `customers(id, organizationId)` and (nullable assignee) `memberships(userId, organizationId)` with `NO ACTION`. Denormalized `lastMessage*` / `lastCustomerMessageAt`. |
+| `messages`                 | Composite FK to conversations. `senderUserId` FK to users `SET NULL`. Enums `MessageSenderType`, `MessageType`.                                                                         |
+| `conversation_events`      | Composite FK to conversations. `actorId` is not a FK. Enum `ConversationEventType`.                                                                                                     |
+| `conversation_read_states` | PK `(conversationId, userId)`; composite FKs to conversations and to memberships (`CASCADE`).                                                                                           |
+
+Enums: `ConversationStatus`, `ConversationPriority`, `ConversationChannel` (only `IN_APP`).
+Design and decisions: [conversations](conversations.md), [ADR 006](decisions/006-conversation-tenant-integrity.md).
+
+### Indexing decisions
+
+All tenant queries lead with `organizationId`. The conversation indexes are
+`(organizationId, status, lastMessageAt DESC)` for the status tabs, `(organizationId, lastMessageAt DESC)`
+for "all", `(organizationId, assignedToUserId, status)` for "assigned to me", `(organizationId, priority,
+lastMessageAt DESC)` for the priority views and `(organizationId, customerId, lastMessageAt DESC)` for
+Customer 360. `messages` and `conversation_events` use `(organizationId, conversationId, createdAt, id)`
+for chronological pages and stable cursors. There is deliberately no index on `subject` (substring
+search) or on every column; see [conversations](conversations.md#indexes).
+
+`20261007081300_conversation_check_constraints` is hand-written (Prisma cannot express CHECK
+constraints): non-blank subject/body, `closedAt` set exactly when RESOLVED, preview <= 200 chars,
+only USER messages carry `senderUserId`, and customers cannot author internal notes.
+`conversations.updatedAt` and `messages.updatedAt` have defaults and are set by the application.

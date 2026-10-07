@@ -11,6 +11,14 @@ export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 export const describeDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 if (TEST_DATABASE_URL) {
+  // The helpers below TRUNCATE tables. Refuse anything that is not clearly a throwaway database,
+  // so pointing this at a real (e.g. development or hosted) database fails loudly instead.
+  const databaseName = new URL(TEST_DATABASE_URL).pathname.slice(1);
+  if (!/test/i.test(databaseName)) {
+    throw new Error(
+      `Refusing to run integration tests against database "${databaseName}": its name must contain "test".`,
+    );
+  }
   process.env.DATABASE_URL = TEST_DATABASE_URL;
 }
 

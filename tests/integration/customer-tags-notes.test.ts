@@ -329,7 +329,7 @@ describeDb("tags, notes and the activity timeline", () => {
       expect(res.body.tags.map((x: { name: string }) => x.name)).toEqual(["VIP"]);
       expect(res.body.notes).toHaveLength(1);
       expect(res.body.recentActivities).toHaveLength(2);
-      expect(res.body.counts).toEqual({ activities: 2, notes: 1 });
+      expect(res.body.counts).toEqual({ activities: 2, notes: 1, conversations: 0 });
     });
   });
 });

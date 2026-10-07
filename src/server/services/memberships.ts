@@ -1,3 +1,4 @@
+import { transaction } from "@/db/client";
 import { isUniqueViolation } from "@/db/errors";
 import type { AddMemberInput, ChangeRoleInput } from "@/features/organizations/schemas";
 import { createLogger } from "@/lib/logger";
@@ -5,6 +6,8 @@ import type { OrganizationContext } from "@/server/auth/context";
 import { canAssignRole, outranks } from "@/server/auth/permissions";
 import { Role } from "@/generated/prisma/enums";
 import { ConflictError, ForbiddenError, NotFoundError } from "@/server/errors";
+import { conversationEventsRepository } from "@/server/repositories/conversation-events";
+import { conversationsRepository } from "@/server/repositories/conversations";
 import { membershipsRepository } from "@/server/repositories/memberships";
 import { usersRepository } from "@/server/repositories/users";
 
@@ -83,7 +86,28 @@ export async function removeMember(ctx: OrganizationContext, targetUserId: strin
     if (!outranks(ctx.membership.role, target.role)) throw new ForbiddenError();
   }
 
-  await membershipsRepository.remove(ctx.organization.id, targetUserId);
+  // Conversations assigned to the leaving member are unassigned first: the assignee foreign key
+  // (conversations -> memberships) would otherwise block the delete. Same transaction, so a failure
+  // leaves both the membership and the assignments untouched.
+  await transaction(async (tx) => {
+    const unassigned = await conversationsRepository.unassignAllForUser(
+      ctx.organization.id,
+      targetUserId,
+      tx,
+    );
+    await conversationEventsRepository.recordMany(
+      ctx.organization.id,
+      unassigned,
+      {
+        type: "UNASSIGNED",
+        metadata: { from: targetUserId, reason: "member_removed" },
+        actorType: "USER",
+        actorId: ctx.user.id,
+      },
+      tx,
+    );
+    await membershipsRepository.remove(ctx.organization.id, targetUserId, tx);
+  });
   log.info(
     { organizationId: ctx.organization.id, actorId: ctx.user.id, targetId: targetUserId },
     "member removed",

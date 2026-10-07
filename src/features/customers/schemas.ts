@@ -1,4 +1,12 @@
 import { z } from "zod";
+import {
+  booleanParam,
+  csv,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  paginationSchema,
+  type Pagination,
+} from "@/lib/query-params";
 import { collapseWhitespace, emptyToNull, normalizeEmail, normalizePhone } from "./normalize";
 
 export const CUSTOMER_STATUSES = ["ACTIVE", "INACTIVE", "ARCHIVED"] as const;
@@ -83,28 +91,7 @@ export type UpdateCustomerInput = z.output<typeof updateCustomerSchema>;
 
 // ---- list / pagination ----------------------------------------------------------------------
 
-export const MAX_PAGE_SIZE = 100;
-export const DEFAULT_PAGE_SIZE = 25;
-
-export const paginationSchema = z.object({
-  page: z.coerce.number().int().min(1).max(100_000).default(1),
-  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
-});
-export type Pagination = z.output<typeof paginationSchema>;
-
-function csv<T extends string>(item: z.ZodType<T, T>) {
-  return z
-    .string()
-    .transform((value) =>
-      value
-        .split(",")
-        .map((part) => part.trim())
-        .filter(Boolean),
-    )
-    .pipe(z.array(item).max(20));
-}
-
-const booleanParam = z.enum(["true", "false"]).transform((value) => value === "true");
+export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, paginationSchema, type Pagination };
 
 export const CUSTOMER_SORT_FIELDS = ["createdAt", "updatedAt", "name", "lastActivityAt"] as const;
 

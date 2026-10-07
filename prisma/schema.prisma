@@ -24,6 +24,7 @@ model User {
 
   memberships Membership[]
   notes       CustomerNote[]
+  messages    Message[]
 
   @@map("users")
 }
@@ -37,12 +38,16 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships  Membership[]
-  customers    Customer[]
-  tags         Tag[]
-  activities   CustomerActivity[]
-  notes        CustomerNote[]
-  customerTags CustomerTag[]
+  memberships        Membership[]
+  customers          Customer[]
+  tags               Tag[]
+  activities         CustomerActivity[]
+  notes              CustomerNote[]
+  customerTags       CustomerTag[]
+  conversations      Conversation[]
+  messages           Message[]
+  conversationEvents ConversationEvent[]
+  readStates         ConversationReadState[]
 
   @@map("organizations")
 }
@@ -55,8 +60,10 @@ model Membership {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedConversations  Conversation[]
+  conversationReadStates ConversationReadState[]
 
   // One membership per (user, organization). Also serves "is user in org?" lookups and
   // "list a user's organizations" (leading column userId).
@@ -113,10 +120,11 @@ model Customer {
   updatedAt      DateTime       @default(now())
   archivedAt     DateTime?
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  tags         CustomerTag[]
-  activities   CustomerActivity[]
-  notes        CustomerNote[]
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tags          CustomerTag[]
+  activities    CustomerActivity[]
+  notes         CustomerNote[]
+  conversations Conversation[]
 
   // Business rules are tenant-aware: the same email/externalId may exist in different organizations.
   @@unique([organizationId, email])
@@ -203,4 +211,150 @@ model CustomerNote {
 
   @@index([organizationId, customerId, createdAt(sort: Desc)])
   @@map("customer_notes")
+}
+
+enum ConversationStatus {
+  OPEN
+  PENDING
+  RESOLVED
+}
+
+enum ConversationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// Only IN_APP exists today. Adding EMAIL, WHATSAPP, ... later is an additive enum migration.
+enum ConversationChannel {
+  IN_APP
+}
+
+enum MessageSenderType {
+  CUSTOMER
+  USER
+  SYSTEM
+  AI_AGENT
+}
+
+// INTERNAL_NOTE is a staff-only note. Customer-facing history is MESSAGE rows only.
+enum MessageType {
+  MESSAGE
+  INTERNAL_NOTE
+}
+
+enum ConversationEventType {
+  CONVERSATION_CREATED
+  SUBJECT_CHANGED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  ASSIGNED
+  UNASSIGNED
+  MESSAGE_SENT
+  INTERNAL_NOTE_ADDED
+}
+
+// Tenant-owned. Composite foreign keys keep it in one organization:
+//  - (customerId, organizationId)         -> customers(id, organizationId)
+//  - (assignedToUserId, organizationId)   -> memberships(userId, organizationId): the assignee must
+//    be a member of the same organization. NO ACTION (not SET NULL): removing a member first
+//    unassigns their conversations in the application (see removeMember).
+model Conversation {
+  id               String               @id @default(uuid()) @db.Uuid
+  organizationId   String               @db.Uuid
+  customerId       String               @db.Uuid
+  subject          String
+  status           ConversationStatus   @default(OPEN)
+  priority         ConversationPriority @default(NORMAL)
+  channel          ConversationChannel  @default(IN_APP)
+  assignedToUserId String?              @db.Uuid
+
+  // Denormalized from the newest customer-facing message so the inbox list needs no message join.
+  // Internal notes never touch these. Maintained in the same transaction as the message insert.
+  lastMessageAt         DateTime
+  lastMessagePreview    String?
+  lastMessageSenderType MessageSenderType?
+  // Newest CUSTOMER message; drives the per-member unread indicator.
+  lastCustomerMessageAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now())
+  closedAt  DateTime?
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer                @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  assignee     Membership?             @relation(fields: [assignedToUserId, organizationId], references: [userId, organizationId], onDelete: NoAction)
+  messages     Message[]
+  events       ConversationEvent[]
+  readStates   ConversationReadState[]
+
+  @@unique([id, organizationId])
+  // Inbox tabs: status filter, newest activity first.
+  @@index([organizationId, status, lastMessageAt(sort: Desc)])
+  // "All" view and default sort.
+  @@index([organizationId, lastMessageAt(sort: Desc)])
+  // "Assigned to me" / per-assignee views.
+  @@index([organizationId, assignedToUserId, status])
+  // Priority views (High, Urgent are first-class inbox filters).
+  @@index([organizationId, priority, lastMessageAt(sort: Desc)])
+  // Customer 360 conversation list.
+  @@index([organizationId, customerId, lastMessageAt(sort: Desc)])
+  @@map("conversations")
+}
+
+model Message {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @db.Uuid
+  conversationId String            @db.Uuid
+  senderType     MessageSenderType
+  // Set only for USER senders. Nullable + SET NULL so history survives user deletion.
+  senderUserId   String?           @db.Uuid
+  messageType    MessageType       @default(MESSAGE)
+  body           String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sender       User?        @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+
+  // Timeline pages of one conversation in chronological order (and the reverse for "latest N").
+  @@index([organizationId, conversationId, createdAt, id])
+  @@map("messages")
+}
+
+model ConversationEvent {
+  id             String                @id @default(uuid()) @db.Uuid
+  organizationId String                @db.Uuid
+  conversationId String                @db.Uuid
+  type           ConversationEventType
+  metadata       Json?
+  actorType      ActivityActorType     @default(USER)
+  // User id for USER actors. Not a foreign key (future AI/system actors; history outlives users).
+  actorId        String?
+  createdAt      DateTime              @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@index([organizationId, conversationId, createdAt, id])
+  @@map("conversation_events")
+}
+
+// Per-member read state: one row per (conversation, member) holding when they last opened it.
+// A conversation is unread for a member when lastCustomerMessageAt is newer than their lastReadAt
+// (or they have no row). Cascades with the membership, so leaving an organization cleans it up.
+model ConversationReadState {
+  conversationId String   @db.Uuid
+  userId         String   @db.Uuid
+  organizationId String   @db.Uuid
+  lastReadAt     DateTime
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  membership   Membership   @relation(fields: [userId, organizationId], references: [userId, organizationId], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@map("conversation_read_states")
 }

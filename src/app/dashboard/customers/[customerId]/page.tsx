@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AddNoteForm } from "@/features/customers/components/add-note-form";
 import { ActivityTimeline } from "@/features/customers/components/activity-timeline";
 import { ArchiveCustomerButton } from "@/features/customers/components/archive-customer-button";
+import { CustomerConversations } from "@/features/conversations/components/customer-conversations";
 import { CustomerStatusBadge } from "@/features/customers/components/customer-status-badge";
 import { CustomerTagsManager } from "@/features/customers/components/customer-tags-manager";
 import { fullName } from "@/features/customers/normalize";
@@ -33,7 +34,7 @@ export default async function CustomerDetailPage({
     if (error instanceof NotFoundError) notFound();
     throw error;
   }
-  const { customer, tags, recentActivities, notes, counts } = data;
+  const { customer, tags, recentActivities, notes, conversations, counts } = data;
   const organizationTags = ctx.can("tag_customers") ? await listTags(ctx) : [];
   const name = fullName(customer);
 
@@ -100,6 +101,15 @@ export default async function CustomerDetailPage({
               </dl>
             </CardContent>
           </Card>
+
+          {ctx.can("view_conversations") ? (
+            <CustomerConversations
+              customerId={customer.id}
+              conversations={conversations}
+              total={counts.conversations}
+              canCreate={ctx.can("create_conversations") && customer.status !== "ARCHIVED"}
+            />
+          ) : null}
 
           <Card>
             <CardHeader>

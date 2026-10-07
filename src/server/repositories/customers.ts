@@ -1,5 +1,6 @@
 import { getDb, type Db } from "@/db/client";
 import { Prisma, type CustomerStatus } from "@/generated/prisma/client";
+import { escapeLike, searchTokens } from "./search";
 import type { ListCustomersQuery } from "@/features/customers/schemas";
 
 /**
@@ -175,15 +176,6 @@ function buildWhere(organizationId: string, query: ListCustomersQuery): Prisma.C
   }
 
   return { organizationId, AND: and };
-}
-
-/** Prisma passes `contains` values into LIKE unescaped, so a user typing % or _ would match everything. */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, "\\$&");
-}
-
-function searchTokens(q: string | undefined): string[] {
-  return (q ?? "").split(/\s+/).filter(Boolean).slice(0, 5);
 }
 
 function buildOrderBy(query: ListCustomersQuery): Prisma.CustomerOrderByWithRelationInput[] {

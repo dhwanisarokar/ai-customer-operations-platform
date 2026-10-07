@@ -163,3 +163,80 @@ Body `{ name }`. `200 { tag }`. Errors: 400, 401, 403, 404, 409.
 ### `DELETE /api/tags/:tagId` (manage_tags: ADMIN, OWNER)
 
 Removes the tag and detaches it from all customers. `204`. Errors: 401, 403, 404.
+
+## Conversations
+
+Like customers, conversation endpoints act in the caller's **active organization** (resolved
+server-side; no organization id in URLs; `organizationId`, `senderUserId`, `senderType` and other
+server-owned fields are rejected in bodies and ignored in query strings). Another organization's
+conversation, message, customer or member returns **404**. Behaviour and rules:
+[conversations](conversations.md).
+
+Conversation object: `{ id, subject, status, priority, channel, customer: {id, name, email,
+company, status}, assignee: {id, name, email} | null, lastMessageAt, lastMessagePreview,
+lastMessageSenderType, unread, createdAt, updatedAt, closedAt }`. `unread` is per calling member.
+
+### `GET /api/conversations` (view_conversations)
+
+Query: `page`, `pageSize` (1-100, default 25), `q`, `status` and `priority` (comma lists),
+`assignee` (`me` | `unassigned` | user id), `channel` (`IN_APP`), `customerId`, `sort`
+(`lastMessageAt` default | `createdAt` | `updatedAt` | `priority`), `order`. `200` paginated
+`{ items, page, pageSize, total, totalPages }`. Errors: 400, 401, 404 (no organization).
+
+### `POST /api/conversations` (create_conversations: any member)
+
+Body (strict): `customerId` (uuid), `subject` (1-200), `priority` (default NORMAL), `channel`
+(default IN_APP), optional `initialMessage: { body, from: "CUSTOMER" (default) | "USER" }`.
+`201 { conversation }`. Errors: 400, 401, 403, 404 (customer not in this organization),
+409 (customer archived).
+
+### `GET /api/conversations/:conversationId` (view_conversations)
+
+`200 { conversation }`. Errors: 401, 404.
+
+### `PATCH /api/conversations/:conversationId` (update_conversations: any member)
+
+Body (strict, at least one): `subject`, `status`, `priority`. Status changes follow the transition
+rules (`OPEN -> PENDING|RESOLVED`, `PENDING -> OPEN|RESOLVED`, `RESOLVED -> OPEN`); resolving sets
+`closedAt`, reopening clears it. Each real change writes an event; unchanged values are no-ops.
+`200 { conversation }`. Errors: 400, 401, 403, 404, 409 (invalid transition).
+
+### `POST /api/conversations/:conversationId/assign` (members: self only; ADMIN/OWNER: anyone)
+
+Body `{ userId }` (must be a member of this organization). `200 { conversation }`.
+Errors: 400, 401, 403 (member assigning others or taking over), 404 (conversation or member).
+
+### `POST /api/conversations/:conversationId/unassign`
+
+No body. Members may release only their own assignment; ADMIN/OWNER anyone's. Idempotent.
+`200 { conversation }`. Errors: 401, 403, 404.
+
+### `GET /api/conversations/:conversationId/messages` (view_conversations)
+
+Query: `limit` (1-200, default 50), `before` (message id cursor, must belong to this conversation),
+`includeInternal` (`true|false`, default `false`: internal notes are excluded unless asked for).
+`200 { items: [message] (oldest first), hasMore, nextCursor, total }` where message is
+`{ id, senderType, senderUserId, messageType, body, createdAt, sender: {id, name, email} | null }`.
+Errors: 400 (bad limit/cursor), 401, 404.
+
+### `POST /api/conversations/:conversationId/messages` (send_messages: any member)
+
+Body (strict): `body` (1-10000), `type` (`MESSAGE` default | `INTERNAL_NOTE`), `from` (`USER`
+default | `CUSTOMER`; `CUSTOMER` is only valid for `MESSAGE`). The sender is the authenticated user
+(or the customer when `from: CUSTOMER`, recorded by the staff member). Customer messages reopen
+PENDING/RESOLVED conversations. `201 { message }`. Errors: 400, 401, 403, 404,
+409 (agent reply on a resolved conversation).
+
+### `GET /api/conversations/:conversationId/events` (view_conversations)
+
+Paginated audit trail, newest first: `{ id, type, metadata, actorType, actorId, createdAt }`.
+Query `page`, `pageSize`. Errors: 400, 401, 404.
+
+### `POST /api/conversations/:conversationId/read` (view_conversations)
+
+Marks the conversation read for the calling member only. `204`. Errors: 401, 404.
+
+### Customer 360 addition
+
+`GET /api/customers/:customerId` now also returns `conversations` (latest 5, conversation objects,
+only for members with `view_conversations`) and `counts.conversations`.

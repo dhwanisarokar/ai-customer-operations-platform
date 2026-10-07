@@ -50,3 +50,31 @@ session and cookie are doubled (`tests/helpers/mocks.ts`, fixtures in `tests/hel
 | `src/features/customers/*.test.*`          | Normalization, Zod schemas, list URL helpers (unit); timeline and form behaviour (React Testing Library, jsdom).                                                     |
 
 Not covered: the server-rendered customer pages (they need a Clerk session) and Playwright E2E.
+
+## Conversation suites (Phase 3)
+
+Same approach as the customer suites: route handlers, services, repositories and PostgreSQL run
+for real; only the Clerk session and the active-organization cookie are doubled.
+Fixtures: `tests/helpers/conversations.ts`.
+
+| File                                           | Covers                                                                                                                                                                         |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `integration/conversations.test.ts`            | Create (with/without first message), validation 400s, archived/foreign customer, read, PATCH, every status transition and `closedAt`, assignment rules per role, Customer 360. |
+| `integration/conversation-messages.test.ts`    | Sender identity, spoofed fields, internal-note separation and non-leakage, resolved/pending lifecycle rules, per-member unread, cursor pagination, events.                     |
+| `integration/conversations-query.test.ts`      | Pagination, search, status/priority/assignee/customer/channel filters, sorting, unread in the list, and a **no-N+1 check** (same query count for 2 and 25 rows).               |
+| `integration/conversations-isolation.test.ts`  | Org A vs org B for every endpoint: read, messages, internal notes, send, status, priority, assignment, create, cursors, tampering, forged active org.                          |
+| `integration/conversation-constraints.test.ts` | Composite FKs (cross-tenant inserts rejected), assignee must be a member, CHECK constraints, cascades, member removal handling, index definitions.                             |
+| `integration/inbox-ui.test.tsx`                | Server-renders the real inbox detail, list and Customer 360 section against real data (no Clerk session needed).                                                               |
+| `src/features/conversations/*.test.*`          | Zod schemas, transition rules, inbox URL params, event wording (unit); composer, controls, timeline (React Testing Library).                                                   |
+
+### Browser (Playwright) tests
+
+Not configured. A realistic end-to-end flow (sign in, create a conversation, reply, add a note,
+change status) needs a real Clerk session, which cannot be automated without Clerk test
+credentials (Clerk "testing tokens" plus a dedicated test instance). Adding Playwright without that
+would only test the sign-in page. This is deferred, and the flow is covered layer by layer above.
+
+### Test database safety
+
+`tests/helpers/db.ts` refuses to run against a database whose name does not contain "test", because
+the helpers `TRUNCATE` tables. Never point `TEST_DATABASE_URL` at a development or hosted database.

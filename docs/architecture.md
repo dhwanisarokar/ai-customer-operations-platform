@@ -30,4 +30,7 @@ src/
 
 - Auth, organizations, memberships and RBAC: see [authentication](authentication.md) and
   [authorization](authorization.md). Endpoint reference: [api](api.md).
+- Customers: [customer management](customer-management.md). Conversations and the inbox:
+  [conversations](conversations.md). Each feature follows the same route -> service -> repository
+  layering with an explicit organization on every query.
 - `GET /api/health` — returns 200 `{status:"ok"}` or 503 `{status:"degraded"}` depending on DB reachability.

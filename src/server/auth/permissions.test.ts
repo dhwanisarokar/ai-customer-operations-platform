@@ -45,6 +45,27 @@ describe("customer permissions", () => {
   });
 });
 
+describe("conversation permissions", () => {
+  const memberCan = [
+    "view_conversations",
+    "create_conversations",
+    "update_conversations",
+    "send_messages",
+  ] as const;
+
+  it("lets every role work the inbox", () => {
+    for (const role of [Role.MEMBER, Role.ADMIN, Role.OWNER]) {
+      for (const permission of memberCan) expect(hasPermission(role, permission)).toBe(true);
+    }
+  });
+
+  it("reserves assigning conversations to others for ADMIN and OWNER", () => {
+    expect(hasPermission(Role.MEMBER, "assign_conversations")).toBe(false);
+    expect(hasPermission(Role.ADMIN, "assign_conversations")).toBe(true);
+    expect(hasPermission(Role.OWNER, "assign_conversations")).toBe(true);
+  });
+});
+
 describe("role hierarchy", () => {
   it("only lets a role act on strictly lower roles", () => {
     expect(outranks(Role.OWNER, Role.ADMIN)).toBe(true);

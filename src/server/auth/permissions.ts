@@ -16,6 +16,11 @@ export const PERMISSIONS = [
   "add_customer_notes",
   "tag_customers",
   "manage_tags",
+  "view_conversations",
+  "create_conversations",
+  "update_conversations",
+  "send_messages",
+  "assign_conversations",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -30,12 +35,19 @@ const MEMBER_PERMISSIONS: readonly Permission[] = [
   "update_customers",
   "add_customer_notes",
   "tag_customers",
+  // Members work the inbox: read, open, reply, add notes, change status/priority, and claim
+  // conversations for themselves. Assigning to others is an ADMIN capability.
+  "view_conversations",
+  "create_conversations",
+  "update_conversations",
+  "send_messages",
 ];
 const ADMIN_PERMISSIONS: readonly Permission[] = [
   ...MEMBER_PERMISSIONS,
   "manage_members",
   "archive_customers",
   "manage_tags",
+  "assign_conversations",
 ];
 const OWNER_PERMISSIONS: readonly Permission[] = [
   ...ADMIN_PERMISSIONS,

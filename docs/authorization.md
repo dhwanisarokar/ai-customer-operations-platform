@@ -73,3 +73,16 @@ context, never from request input. Future tenant-owned tables must follow the sa
 Customer, tag, note and activity routes have no organization id in the URL: they use
 `requireOrganizationContext()` with no argument, which resolves the caller's active organization
 from their verified memberships. See [customer management](customer-management.md).
+
+## Conversation permissions
+
+| Permission                                                                            | OWNER | ADMIN | MEMBER |
+| ------------------------------------------------------------------------------------- | :---: | :---: | :----: |
+| `view_conversations`, `create_conversations`, `update_conversations`, `send_messages` |   x   |   x   |   x    |
+| `assign_conversations` (assign others, reassign, unassign others)                     |   x   |   x   |        |
+
+Members may additionally claim an unassigned conversation for themselves and release their own
+assignment (a rule inside the assignment service, not a separate permission). Resolving, reopening
+and priority changes are open to members because they are routine inbox work; there is no
+`manage_conversations` permission until something needs one. Conversation routes use
+`requireOrganizationContext()` with no argument, like customers. Details: [conversations](conversations.md).

@@ -1,4 +1,4 @@
-import { getDb } from "@/db/client";
+import { getDb, type Db } from "@/db/client";
 import { Role } from "@/generated/prisma/enums";
 import type { OrganizationRecord } from "./organizations";
 
@@ -92,8 +92,8 @@ export const membershipsRepository = {
     });
   },
 
-  async remove(organizationId: string, userId: string): Promise<void> {
-    await getDb().membership.delete({
+  async remove(organizationId: string, userId: string, db: Db = getDb()): Promise<void> {
+    await db.membership.delete({
       where: { userId_organizationId: { userId, organizationId } },
     });
   },

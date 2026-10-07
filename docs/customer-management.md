@@ -134,6 +134,12 @@ not been load-tested.
 tags and timeline entries to an existing organization. It refuses to run when `NODE_ENV=production`.
 The app never reads or generates demo data itself.
 
+## Conversations on Customer 360
+
+`GET /api/customers/:id` also returns the customer's latest conversations and a conversation count,
+and the detail page shows them with a link to start a new one. Conversations reference the
+customer through the foreign key (no copied data); see [conversations](conversations.md).
+
 ## Known limitations
 
 - Timeline timestamps and day groups are rendered on the server in the server's timezone.
