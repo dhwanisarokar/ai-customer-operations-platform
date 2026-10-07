@@ -13,6 +13,7 @@ export type TimelineMessage = {
   /** Present for AI_AGENT messages: how the reply was produced (no prompts or secrets). */
   ai?: {
     grounded: boolean;
+    intent?: string | null;
     sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
   } | null;
 };
@@ -200,6 +201,8 @@ function MessageBubble({ message }: { message: TimelineMessage }) {
 
 /** Only shows sources the retrieval actually returned and the model cited. Nothing is invented. */
 function AiSources({ ai }: { ai: TimelineMessage["ai"] }) {
+  // Small talk involved no knowledge lookup, so there is nothing to attribute (or disclaim).
+  if (ai?.intent === "CONVERSATIONAL") return null;
   if (!ai || !ai.grounded || ai.sources.length === 0) {
     return (
       <p className="text-muted-foreground text-xs">

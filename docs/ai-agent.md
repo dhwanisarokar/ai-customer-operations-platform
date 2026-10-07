@@ -15,6 +15,13 @@ Code map: `src/server/ai/` (`config.ts`, `types.ts`, `provider.ts`, `errors.ts`,
 `src/server/services/ai-reply.ts` (orchestration and persistence),
 `src/app/api/conversations/[conversationId]/ai-reply/route.ts`.
 
+## Conversation policy (Phase 4.6)
+
+Before retrieval, a deterministic policy classifies the latest customer message. Small talk,
+off-topic requests and obvious injection attempts get fixed replies (no embedding, search or model
+call, still stored as `AI_AGENT`); everything else runs the pipeline below unchanged. See
+[ai-conversation-policy](ai-conversation-policy.md).
+
 ## Provider abstraction
 
 Application code depends on `AIProvider` (`generateResponse`, `generateEmbeddings`), never on a

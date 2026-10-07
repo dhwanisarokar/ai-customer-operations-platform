@@ -65,4 +65,33 @@ describe("ConversationTimeline: AI messages", () => {
       expect(bubble).not.toHaveTextContent("Based on:");
     }
   });
+
+  it("shows no source line at all for small talk, but still disclaims out-of-scope replies", () => {
+    render(
+      <ConversationTimeline
+        names={new Map()}
+        events={[]}
+        messages={[
+          {
+            ...base,
+            id: "1",
+            senderType: "AI_AGENT",
+            body: "Hello! How can I help you today?",
+            ai: { grounded: false, intent: "CONVERSATIONAL", sources: [] },
+          },
+          {
+            ...base,
+            id: "2",
+            senderType: "AI_AGENT",
+            body: "I'm here to help with questions about your account and our services.",
+            ai: { grounded: false, intent: "OUT_OF_SCOPE", sources: [] },
+          },
+        ]}
+      />,
+    );
+    const [greeting, offTopic] = screen.getAllByRole("article", { name: "AI message" });
+    expect(greeting).not.toHaveTextContent("Based on:");
+    expect(greeting).not.toHaveTextContent("Not based on your knowledge base");
+    expect(offTopic).toHaveTextContent("Not based on your knowledge base");
+  });
 });

@@ -47,7 +47,7 @@ export const RESPONSE_JSON_SCHEMA = {
 
 /** Shown when the model cannot (or may not) answer from the knowledge base. */
 export const FALLBACK_REPLY =
-  "Thanks for your message. I don't have enough information to answer this accurately, so a member of our team will follow up with you shortly.";
+  "I don't have enough information to answer that accurately. A team member can help you with this.";
 
 /** Phrases that only occur in the system prompt; a reply containing them is treated as a leak. */
 const PROMPT_CANARIES = [

@@ -19,6 +19,8 @@ export type AiMessageInfo = {
   provider: string;
   model: string;
   grounded: boolean;
+  /** How the reply was handled (e.g. CONVERSATIONAL, SUPPORT); null for older messages. */
+  intent: string | null;
   sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
 };
 
@@ -44,6 +46,7 @@ export function toAiInfo(senderType: string, metadata: unknown): AiMessageInfo |
     provider: typeof meta.provider === "string" ? meta.provider : "unknown",
     model: typeof meta.model === "string" ? meta.model : "unknown",
     grounded: meta.grounded === true,
+    intent: typeof meta.intent === "string" ? meta.intent : null,
     sources: rawSources.flatMap((source) => {
       const s = source as Record<string, unknown>;
       return typeof s?.documentId === "string" &&

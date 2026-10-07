@@ -9,6 +9,9 @@ import {
 } from "@/server/ai/agent/context";
 import { runSupportAgent } from "@/server/ai/agent/agent";
 import { AGENT_LIMITS } from "@/server/ai/config";
+import { applyConversationPolicy } from "@/server/ai/policy/responses";
+import { POLICY_VERSION } from "@/server/ai/policy/types";
+import type { AgentResult } from "@/server/ai/agent/types";
 import type { OrganizationContext } from "@/server/auth/context";
 import { ConflictError, NotFoundError } from "@/server/errors";
 import { conversationEventsRepository } from "@/server/repositories/conversation-events";
@@ -67,15 +70,38 @@ export async function generateAiReply(ctx: OrganizationContext, conversationId: 
       throw new ConflictError("There is no customer message to answer yet.");
     }
 
-    const result = await runSupportAgent({
-      organizationId,
-      customer: toCustomerContext(customer),
-      messages,
-      retrievalQuery,
-    });
+    // Conversation policy first: small talk, off-topic requests and obvious injection attempts are
+    // answered with fixed text (no embedding, vector search or model call). Everything else goes
+    // through the unchanged RAG pipeline. The decision is server-side and grants nothing.
+    const latestCustomerText = messages.filter((m) => m.role === "customer").at(-1)!.text;
+    const decision = applyConversationPolicy(latestCustomerText);
+    const result: AgentResult & { intent: string } = decision.handled
+      ? {
+          intent: decision.intent,
+          reply: decision.reply,
+          grounded: false,
+          sources: [],
+          retrievedChunkIds: [],
+          promptVersion: POLICY_VERSION,
+          model: "none",
+          provider: "policy",
+          latencyMs: 0,
+          usage: { inputTokens: null, outputTokens: null, totalTokens: null },
+          validation: "ok",
+        }
+      : {
+          intent: decision.intent,
+          ...(await runSupportAgent({
+            organizationId,
+            customer: toCustomerContext(customer),
+            messages,
+            retrievalQuery,
+          })),
+        };
 
     const metadata = {
       kind: "ai_reply",
+      intent: result.intent,
       provider: result.provider,
       model: result.model,
       promptVersion: result.promptVersion,
@@ -155,6 +181,7 @@ export async function generateAiReply(ctx: OrganizationContext, conversationId: 
         messageId: message.id,
         actorId: ctx.user.id,
         model: result.model,
+        intent: result.intent,
         grounded: result.grounded,
         sources: result.sources.length,
         retrieved: result.retrievedChunkIds.length,

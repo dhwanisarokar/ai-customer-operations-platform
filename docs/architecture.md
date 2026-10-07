@@ -36,7 +36,9 @@ src/
   layering with an explicit organization on every query.
 - Knowledge base, RAG and the AI agent: [knowledge-base](knowledge-base.md), [rag](rag.md),
   [ai-agent](ai-agent.md). All AI access goes through `src/server/ai` (a provider interface with one
-  Gemini implementation); services and routes never import the SDK.
+  Gemini implementation); services and routes never import the SDK. A deterministic conversation
+  policy ([ai-conversation-policy](ai-conversation-policy.md)) runs before retrieval and answers
+  small talk, off-topic and injection attempts without RAG or a model call.
 - Client server-state (TanStack Query, optimistic updates, outbox): [server-state](server-state.md).
   Pages load initial data on the server; client views refetch and mutate through the same REST API.
 - `GET /api/health` — returns 200 `{status:"ok"}` or 503 `{status:"degraded"}` depending on DB reachability.

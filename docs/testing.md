@@ -119,3 +119,14 @@ in [rag.md](rag.md).
   and AI pending/success/failure.
 - Component tests render real components against the stubbed API (`conversation-pane`, controls,
   composer, ask-ai). Integration SSR tests render the client views with `serialize`d real-DB data.
+
+## Conversation policy suites (Phase 4.6)
+
+- `src/server/ai/policy/classifier.test.ts` — normalization and intent classification (greetings in
+  many spellings, support questions incl. greeting + question, out-of-scope, injection, precedence).
+- `tests/integration/ai-conversation-policy.test.ts` — through the real route with the fake provider:
+  small talk, off-topic and injection make **zero** embedding/generation calls; support questions still
+  run RAG and cite the real source; unknown questions stay ungrounded; all replies are `AI_AGENT`.
+- `conversation-timeline-ai.test.tsx` — no source line for small talk, disclaimer for out-of-scope.
+- The model-level injection regression tests in `ai-reply.test.ts` use phrasings that pass the policy
+  filter on purpose, so the layered model defenses stay covered.
