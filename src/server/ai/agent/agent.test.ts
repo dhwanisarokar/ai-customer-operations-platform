@@ -56,7 +56,7 @@ describe("runSupportAgent: grounding", () => {
       reply: "Refunds take up to 30 days.",
       grounded: true,
       validation: "ok",
-      promptVersion: "AI_SUPPORT_AGENT_V2",
+      promptVersion: "AI_SUPPORT_AGENT_V3",
       provider: "fake",
       model: "fake-model",
       retrievedChunkIds: ["c1", "c2"],
@@ -90,7 +90,7 @@ describe("runSupportAgent: grounding", () => {
     const request = fake.generateCalls[0];
     expect(request.systemInstruction).toBe(SYSTEM_INSTRUCTION);
     expect(request.responseJsonSchema).toMatchObject({
-      required: ["answerable", "reply", "sourceLabels"],
+      required: ["answerable", "reply", "sourceLabels", "usedAccountData"],
     });
     expect(request.temperature).toBeLessThanOrEqual(0.3);
   });
@@ -262,5 +262,69 @@ describe("runSupportAgent: prompt injection", () => {
     const prompt = fake.lastPrompt();
     expect(prompt).toContain("Name: Alice Anders");
     expect(prompt).not.toMatch(/@|\+1555|password|api[_ ]?key/i);
+  });
+});
+
+describe("runSupportAgent: the customer's own record and tool results", () => {
+  const withTools = {
+    ...input,
+    messages: [{ role: "customer" as const, text: "What is my name and company?" }],
+    retrievalQuery: "What is my name and company?",
+    toolFindings:
+      '- getCustomer result: {"name":"Alice Anders","company":"Acme","status":"ACTIVE"}',
+  };
+
+  it("keeps an answer taken from the customer record / tool results (no knowledge needed)", async () => {
+    search.mockResolvedValue([]);
+    fake.generation = modelJson({
+      answerable: true,
+      reply: "Your name is Alice Anders and your company is Acme.",
+      sourceLabels: [],
+      usedAccountData: true,
+    });
+    const result = await runSupportAgent(withTools);
+    expect(result).toMatchObject({
+      reply: "Your name is Alice Anders and your company is Acme.",
+      grounded: false, // not from the knowledge base
+      accountData: true,
+      sources: [],
+      validation: "ok",
+    });
+    expect(fake.lastPrompt()).toContain("<tool_results>");
+    expect(fake.lastPrompt()).toContain("Alice Anders");
+  });
+
+  it("still replaces an 'answer' that cites nothing and claims no record data (no hallucinated policy)", async () => {
+    search.mockResolvedValue([]);
+    fake.generation = modelJson({
+      answerable: true,
+      reply: "Our refund window is 90 days.",
+      sourceLabels: [],
+      usedAccountData: false,
+    });
+    const result = await runSupportAgent(withTools);
+    expect(result).toMatchObject({
+      reply: FALLBACK_REPLY,
+      accountData: false,
+      validation: "ungrounded_answer_replaced",
+    });
+  });
+
+  it("an older-shaped model answer without the new field is treated as not using record data", async () => {
+    search.mockResolvedValue([]);
+    fake.generation = modelJson({
+      answerable: true,
+      reply: "Your name is Alice.",
+      sourceLabels: [],
+    });
+    const result = await runSupportAgent(withTools);
+    expect(result.reply).toBe(FALLBACK_REPLY);
+  });
+
+  it("a knowledge-grounded answer is unaffected and reports no record data", async () => {
+    search.mockResolvedValue([chunk("c1", "Refund policy", "Refunds within 30 days.")]);
+    fake.generation = modelJson({ answerable: true, reply: "30 days.", sourceLabels: ["S1"] });
+    const result = await runSupportAgent(input);
+    expect(result).toMatchObject({ grounded: true, accountData: false, validation: "ok" });
   });
 });

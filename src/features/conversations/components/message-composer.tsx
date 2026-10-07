@@ -163,6 +163,10 @@ export function MessageComposer({
                   )}
                 </span>
               </span>
+            ) : suggestion.accountData ? (
+              <span className="text-muted-foreground">
+                Based on: <span className="text-foreground font-medium">customer record</span>
+              </span>
             ) : suggestion.intent === "CONVERSATIONAL" ? null : (
               <span className="text-muted-foreground flex items-center gap-1">
                 <TriangleAlertIcon className="size-3.5" aria-hidden="true" />

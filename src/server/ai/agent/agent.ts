@@ -21,6 +21,8 @@ const modelOutputSchema = z.object({
   answerable: z.boolean(),
   reply: z.string().trim().min(1).max(AGENT_LIMITS.maxReplyChars),
   sourceLabels: z.array(z.string()).max(20),
+  // Optional so older-shaped output still parses; absent means false.
+  usedAccountData: z.boolean().optional(),
 });
 
 /**
@@ -68,15 +70,19 @@ export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
   let reply = output.reply;
   let validation: AgentResult["validation"] = "ok";
   let grounded = output.answerable && sources.length > 0;
+  // A reply built from the customer's own record (profile / tool results) needs no knowledge
+  // citation. It is never a policy claim: those still require a cited source to be kept.
+  let accountData = output.answerable && !grounded && output.usedAccountData === true;
 
   if (looksLikePromptLeak(reply)) {
     // Best-effort guard against the model echoing its instructions.
     reply = FALLBACK_REPLY;
     grounded = false;
+    accountData = false;
     validation = "prompt_leak_replaced";
     sources.length = 0;
     log.warn({ promptVersion: PROMPT_VERSION }, "reply replaced: possible prompt leak");
-  } else if (output.answerable && !grounded) {
+  } else if (output.answerable && !grounded && !accountData) {
     // The model claims to answer from knowledge but cited nothing valid (or nothing was retrieved).
     reply = FALLBACK_REPLY;
     validation = "ungrounded_answer_replaced";
@@ -91,6 +97,7 @@ export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
   return {
     reply,
     grounded,
+    accountData,
     sources,
     retrievedChunkIds: chunks.map((chunk) => chunk.chunkId),
     promptVersion: PROMPT_VERSION,

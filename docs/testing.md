@@ -159,3 +159,12 @@ in [rag.md](rag.md).
   execution, dismiss, and the card appearing after Ask AI.
 - `FakeAiProvider.toolScript` scripts what the model REQUESTS; the application's decision is what is
   under test. Real Gemini is never called.
+
+## Live Gemini smoke test (manual)
+
+`npm run ai:tools-smoke` exercises real function calling (profile question -> `getCustomer`, change
+requests -> `updateCustomer` / `changeConversationStatus`, general question) and the drafting prompt
+with tool results. It needs `GEMINI_API_KEY`, makes ~15 requests, never touches the database and is
+never part of `npm test`. The mocked adapter tests in `src/server/ai/gemini/provider.test.ts` pin the
+exact `@google/genai` request/response structures (`functionCall`, `functionResponse`, thought
+signatures, multiple calls) and are typed against the installed SDK.

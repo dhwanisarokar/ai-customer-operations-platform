@@ -23,6 +23,8 @@ export type AiDraft = {
   draft: string;
   /** True only when the draft is answered from, and cites, retrieved knowledge. */
   grounded: boolean;
+  /** True when the draft is based on the customer's own record rather than the knowledge base. */
+  accountData: boolean;
   /** How the policy handled the customer's message (CONVERSATIONAL, SUPPORT, ...). */
   intent: string;
   /** Knowledge the draft is based on (validated against what was really retrieved). */
@@ -93,6 +95,7 @@ export async function generateAiDraft(
       return {
         draft: decision.reply,
         grounded: false,
+        accountData: false,
         intent: decision.intent,
         sources: [],
         approvals: [],
@@ -135,6 +138,7 @@ export async function generateAiDraft(
     return {
       draft: result.reply,
       grounded: result.grounded,
+      accountData: result.accountData,
       intent: decision.intent,
       sources: result.sources.map((source) => ({
         documentId: source.documentId,

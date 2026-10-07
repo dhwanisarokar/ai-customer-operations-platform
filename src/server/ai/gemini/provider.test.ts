@@ -361,3 +361,103 @@ describe("generateWithTools (function calling)", () => {
     expect(String(error.message)).not.toContain("SECRET");
   });
 });
+
+describe("generateWithTools: exact @google/genai structures", () => {
+  // Typed against the installed SDK so a change in its request/response shapes fails compilation.
+  type SdkContent = import("@google/genai").Content;
+  type SdkPart = import("@google/genai").Part;
+
+  const request = {
+    systemInstruction: "sys",
+    turns: [{ role: "user" as const, text: "What is my name and company?" }],
+    tools: [
+      {
+        name: "getCustomer",
+        description: "Retrieves the customer profile",
+        parametersJsonSchema: {
+          type: "object",
+          properties: { customerId: { type: "string", format: "uuid" } },
+          required: ["customerId"],
+          additionalProperties: false,
+        },
+      },
+    ],
+    timeoutMs: 1000,
+  };
+
+  it("parses several function calls (with a text part and a thought signature) in one response", async () => {
+    const content: SdkContent = {
+      role: "model",
+      parts: [
+        { text: "Let me look that up." },
+        {
+          functionCall: { name: "getCustomer", args: { customerId: "c1" } },
+          thoughtSignature: "opaque-signature",
+        },
+        { functionCall: { name: "getConversation", args: {} } },
+      ] as SdkPart[],
+    };
+    generateContent.mockResolvedValue({ candidates: [{ content, finishReason: "STOP" }] });
+    const result = await new GeminiProvider(config).generateWithTools(request);
+
+    expect(result.text).toBe("Let me look that up.");
+    expect(result.toolCalls).toEqual([
+      { name: "getCustomer", args: { customerId: "c1" } },
+      { name: "getConversation", args: {} },
+    ]);
+    // The model's content (including its signature) is kept verbatim for the next turn.
+    expect(result.providerData).toBe(content);
+  });
+
+  it("treats a functionCall without args as an empty argument object", async () => {
+    generateContent.mockResolvedValue({
+      candidates: [
+        { content: { role: "model", parts: [{ functionCall: { name: "getConversation" } }] } },
+      ],
+    });
+    const result = await new GeminiProvider(config).generateWithTools(request);
+    expect(result.toolCalls).toEqual([{ name: "getConversation", args: {} }]);
+  });
+
+  it("sends the full multi-turn exchange in the SDK's function-calling format", async () => {
+    generateContent.mockResolvedValue({ candidates: [{ content: { parts: [{ text: "DONE" }] } }] });
+    const customerResult = {
+      result: { name: "Alice Anders", company: "Acme" },
+    };
+    await new GeminiProvider(config).generateWithTools({
+      ...request,
+      turns: [
+        { role: "user", text: "What is my name and company?" },
+        {
+          role: "model",
+          text: "",
+          toolCalls: [{ name: "getCustomer", args: { customerId: "c1" } }],
+        },
+        { role: "tool", name: "getCustomer", response: customerResult },
+      ],
+    });
+
+    const expected: SdkContent[] = [
+      { role: "user", parts: [{ text: "What is my name and company?" }] },
+      {
+        role: "model",
+        parts: [{ functionCall: { name: "getCustomer", args: { customerId: "c1" } } }],
+      },
+      {
+        role: "user",
+        parts: [{ functionResponse: { name: "getCustomer", response: customerResult } }],
+      },
+    ];
+    const sent = generateContent.mock.calls[0][0];
+    expect(sent.contents).toEqual(expected);
+    expect(sent.config.tools[0].functionDeclarations[0]).toEqual({
+      name: "getCustomer",
+      description: "Retrieves the customer profile",
+      parametersJsonSchema: request.tools[0].parametersJsonSchema,
+    });
+    expect(sent.config.systemInstruction).toBe("sys");
+    // Only declarations are sent; the SDK must not execute anything itself.
+    expect(sent.config.automaticFunctionCalling).toEqual({ disable: true });
+    expect(JSON.stringify(sent)).not.toContain("test-key-not-real");
+  });
+});

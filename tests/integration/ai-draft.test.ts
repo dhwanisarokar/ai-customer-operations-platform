@@ -78,6 +78,7 @@ describeDb("AI draft (RAG support agent, human-reviewed)", () => {
       ]);
       // Only what the UI needs: no message, no metadata, no usage, no embeddings.
       expect(Object.keys(res.body).sort()).toEqual([
+        "accountData",
         "approvals",
         "draft",
         "grounded",

@@ -189,5 +189,9 @@ export function uninstallFakeAi(): void {
 }
 
 /** Convenience: model output JSON. */
-export const modelJson = (output: { answerable: boolean; reply: string; sourceLabels: string[] }) =>
-  JSON.stringify(output);
+export const modelJson = (output: {
+  answerable: boolean;
+  reply: string;
+  sourceLabels: string[];
+  usedAccountData?: boolean;
+}) => JSON.stringify(output);

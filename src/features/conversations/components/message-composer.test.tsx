@@ -81,3 +81,36 @@ describe("MessageComposer", () => {
     expect(onSend).toHaveBeenCalledWith({ body: "note", type: "INTERNAL_NOTE", from: "USER" });
   });
 });
+
+describe("MessageComposer: AI suggestion basis", () => {
+  const suggestion = (overrides: Record<string, unknown>) => ({
+    draft: "Your name is Alice.",
+    grounded: false,
+    accountData: false,
+    intent: "SUPPORT",
+    sources: [],
+    approvals: [],
+    ...overrides,
+  });
+
+  it("says the suggestion is based on the customer record when it came from account data", () => {
+    render(
+      <MessageComposer
+        resolved={false}
+        onSend={vi.fn()}
+        suggestion={suggestion({ accountData: true })}
+      />,
+    );
+    expect(screen.getByRole("status", { name: "AI suggested reply" })).toHaveTextContent(
+      "Based on: customer record",
+    );
+    expect(screen.queryByText(/Not based on your knowledge base/)).not.toBeInTheDocument();
+  });
+
+  it("still warns when it is based on neither knowledge nor the customer record", () => {
+    render(<MessageComposer resolved={false} onSend={vi.fn()} suggestion={suggestion({})} />);
+    expect(screen.getByRole("status", { name: "AI suggested reply" })).toHaveTextContent(
+      "Not based on your knowledge base",
+    );
+  });
+});

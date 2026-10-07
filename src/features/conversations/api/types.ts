@@ -33,6 +33,8 @@ export const DEFAULT_EVENTS_PARAMS: EventsParams = { page: 1, pageSize: 100 };
 export type AiDraftResponse = {
   draft: string;
   grounded: boolean;
+  /** Based on the customer's own record (not the knowledge base). */
+  accountData: boolean;
   intent: string;
   sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
   /** Changes the AI requested; pending a human decision (nothing has been applied). */

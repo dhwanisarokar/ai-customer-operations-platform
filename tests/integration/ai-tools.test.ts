@@ -633,6 +633,33 @@ describeDb("AI tools: authorization, risk policy and human approval", () => {
       ]);
     });
 
+    it("answers a question about the customer's own record from the tool result (not the fallback)", async () => {
+      await seedMessage(t.orgA.id, conversation.id, {
+        body: "What is my name and company?",
+        senderType: "CUSTOMER",
+        createdAt: new Date(Date.now() + 2000),
+      });
+      fake.toolScript = (_request, round) =>
+        round === 0
+          ? { toolCalls: [{ name: "getCustomer", args: { customerId: t.customerA.id } }] }
+          : { text: "DONE" };
+      fake.generation = JSON.stringify({
+        answerable: true,
+        reply: "Your name is Alice Anders and your company is Acme.",
+        sourceLabels: [],
+        usedAccountData: true,
+      });
+      const res = await draft();
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        draft: "Your name is Alice Anders and your company is Acme.",
+        grounded: false,
+        accountData: true,
+        sources: [],
+      });
+      expect(fake.lastPrompt()).toContain("getCustomer result");
+    });
+
     it("a mutation request pauses for approval: the draft says so and nothing is applied", async () => {
       fake.toolScript = (_request, round) =>
         round === 0

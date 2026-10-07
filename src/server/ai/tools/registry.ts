@@ -62,7 +62,7 @@ const KNOWLEDGE_CHARS = 1200;
 const getCustomerTool = defineTool({
   name: "getCustomer",
   description:
-    "Look up one customer of this organization by id: name, contact details, company, status and tags.",
+    "Retrieves the profile of the customer in the current conversation: name, email, phone, company, job title, account status and tags. Use it whenever the customer asks about their own details or account (for example their name, company, email, phone number, role or status). Pass the customerId from <context>.",
   inputSchema: z.object({ customerId: z.uuid() }).strict(),
   riskLevel: "LOW",
   requiredPermission: "view_customers",
@@ -86,7 +86,7 @@ const getCustomerTool = defineTool({
 const getConversationTool = defineTool({
   name: "getConversation",
   description:
-    "Read a conversation of this organization (defaults to the current one): status, priority, customer, assignee and the most recent customer-facing messages.",
+    "Reads the current conversation: its status, priority, subject, assignee and the most recent customer-facing messages. Use it when the customer asks about the state of this conversation or ticket. conversationId is optional and defaults to the current conversation.",
   inputSchema: z.object({ conversationId: z.uuid().optional() }).strict(),
   riskLevel: "LOW",
   requiredPermission: "view_conversations",
@@ -119,7 +119,7 @@ const getConversationTool = defineTool({
 const searchKnowledgeTool = defineTool({
   name: "searchKnowledge",
   description:
-    "Search this organization's published knowledge base. Returns the most relevant passages with their document titles.",
+    "Search this organization's published knowledge base for a topic. Relevant knowledge for the latest message is already provided when the reply is drafted, so use this only to look up a different or more specific topic.",
   inputSchema: z.object({ query: z.string().trim().min(1).max(300) }).strict(),
   riskLevel: "LOW",
   requiredPermission: "view_knowledge",

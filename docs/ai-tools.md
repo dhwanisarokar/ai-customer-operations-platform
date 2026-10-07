@@ -31,13 +31,29 @@ AI (Gemini)  --function call-->  Tool runner (application code)
    approvals and the model is told they have **not** been applied.
 3. At most **5 tool calls** run per request (`MAX_TOOL_CALLS`); the loop then stops.
 4. The existing RAG draft is generated as before. Tool results (and the "awaiting approval" notes) are
-   added to its prompt in a delimited `<tool_results>` data section (prompt `AI_SUPPORT_AGENT_V2`).
+   added to its prompt in a delimited `<tool_results>` data section (prompt `AI_SUPPORT_AGENT_V3`).
 
 If the tool pass itself fails (provider error) it is skipped and the draft continues without tool
 results. Set `AI_TOOLS_ENABLED=false` to turn the tool pass off entirely (knowledge-only drafts).
 
 The human flow of Phase 4.9 is unchanged: the suggested reply is an editable draft that is only sent
 when a person sends it. Tools are an additional capability, not an autonomous agent.
+
+## Answers from the customer's own record
+
+Draft validation requires a cited knowledge source for company facts. Facts about the customer's own
+record (name, company, email, ...) come from `<customer_profile>` and `<tool_results>`, which the
+application filled from its database, so the draft schema has `usedAccountData`. A reply is kept when
+it cites knowledge **or** the model reports `usedAccountData: true`; the draft then carries
+`accountData: true` and the UI says "Based on: customer record". An answer with neither is still
+replaced by the safe fallback, so a model cannot assert policies without a source. Limitation: the flag
+is the model's own report; policy claims are still only trustworthy when they cite a source.
+
+## Verifying against real Gemini
+
+`npm run ai:tools-smoke` (development tool, never run by tests) sends real function-calling requests
+with the real tool declarations through the real loop and adapter, using in-memory stubs and no
+database, and prints which tools Gemini requested for five sample messages.
 
 ## Tool registry
 

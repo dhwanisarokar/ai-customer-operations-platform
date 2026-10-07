@@ -37,6 +37,8 @@ export type AgentResult = {
   reply: string;
   /** True only when the reply is answered from, and cites, retrieved knowledge. */
   grounded: boolean;
+  /** True when the reply states facts from the customer's own record (profile / tool results). */
+  accountData: boolean;
   /** Sources the model actually cited (validated against what was retrieved). */
   sources: AgentSource[];
   /** Every chunk that was offered to the model, cited or not. */
