@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useMembers } from "@/features/organizations/hooks/queries";
 import { ApiError } from "@/lib/api-client";
 import { formatDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { mutationKeys } from "@/lib/query/query-keys";
 import { useOrganizationScope } from "@/lib/query/query-provider";
 import {
@@ -73,6 +74,9 @@ export function ConversationPane({
   const membersQuery = useMembers({ initialData: initial.members });
 
   const outbox = useMessageOutbox(conversationId);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Phones: status/priority/assignee are tucked behind a toggle so the messages get the screen.
+  const [controlsOpen, setControlsOpen] = useState(false);
   const aiRunning = useIsMutating({ mutationKey: mutationKeys.aiReply(org, conversationId) }) > 0;
 
   // Opening a conversation marks it read for this member (optimistic; one attempt per open, so a
@@ -140,6 +144,18 @@ export function ConversationPane({
     return [...persisted, ...unconfirmed];
   }, [messages, outbox.items, currentUserId]);
 
+  // The history is its own scroll area: open at the newest message, and follow new ones unless the
+  // reader has scrolled up to read earlier messages.
+  const entryCount = timelineMessages.length + (aiRunning ? 1 : 0);
+  const firstScroll = useRef(true);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (firstScroll.current || nearBottom) el.scrollTop = el.scrollHeight;
+    firstScroll.current = false;
+  }, [entryCount]);
+
   const events = useMemo(() => {
     const ascending = [...(eventsQuery.data?.items ?? [])].reverse();
     // Only show audit events inside the time window of the loaded messages.
@@ -184,13 +200,13 @@ export function ConversationPane({
   return (
     <section
       aria-label="Conversation"
-      className="border-border bg-card flex min-h-[32rem] flex-col rounded-xl border"
+      className="border-border bg-card flex h-full min-h-0 flex-col overflow-hidden rounded-xl border"
     >
-      <header className="border-border flex flex-col gap-3 border-b p-4">
+      <header className="border-border flex shrink-0 flex-col gap-2 border-b p-3 md:gap-3 md:p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="truncate text-lg font-semibold">{conversation.subject}</h2>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground truncate text-sm md:break-words md:whitespace-normal">
               <Link
                 href={`/dashboard/customers/${conversation.customer.id}`}
                 className="hover:text-foreground underline-offset-4 hover:underline"
@@ -206,23 +222,36 @@ export function ConversationPane({
             <ConversationPriorityBadge priority={conversation.priority} showNormal />
             <Link
               href={closeHref}
-              className={buttonVariants({ variant: "ghost", size: "sm" }) + " lg:hidden"}
+              className={buttonVariants({ variant: "outline", size: "sm" }) + " md:hidden"}
             >
-              Close
+              &larr; Back
             </Link>
           </div>
         </div>
-        <ConversationControls
-          conversation={conversation}
-          currentUserId={currentUserId}
-          members={members}
-          canUpdate={can.update}
-          canAssignOthers={can.assign}
-        />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-mx-1 self-start md:hidden"
+          aria-expanded={controlsOpen}
+          aria-controls="conversation-controls"
+          onClick={() => setControlsOpen((open) => !open)}
+        >
+          {controlsOpen ? "Hide details" : "Status, priority & assignee"}
+        </Button>
+        <div id="conversation-controls" className={cn(!controlsOpen && "hidden md:block")}>
+          <ConversationControls
+            conversation={conversation}
+            currentUserId={currentUserId}
+            members={members}
+            canUpdate={can.update}
+            canAssignOthers={can.assign}
+          />
+        </div>
       </header>
 
       <div
-        className="flex flex-1 flex-col gap-3 overflow-y-auto p-4"
+        ref={scrollRef}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-4"
         aria-busy={messagesQuery.isFetching}
       >
         {messages?.hasMore ? (
@@ -265,7 +294,7 @@ export function ConversationPane({
       </div>
 
       {can.send ? (
-        <div className="border-border flex flex-col gap-3 border-t p-3">
+        <div className="border-border flex shrink-0 flex-col gap-2 border-t p-2 md:gap-3 md:p-3">
           <AskAiButton conversationId={conversationId} disabled={resolved} />
           <MessageComposer resolved={resolved} onSend={(input) => void outbox.send(input)} />
         </div>

@@ -4,19 +4,23 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const LINKS = [
+export const DASHBOARD_LINKS = [
   { href: "/dashboard", label: "Overview", exact: true },
   { href: "/dashboard/inbox", label: "Inbox", exact: false },
   { href: "/dashboard/customers", label: "Customers", exact: false },
   { href: "/dashboard/knowledge", label: "Knowledge", exact: false },
 ] as const;
 
+export function isActiveLink(pathname: string, href: string, exact: boolean) {
+  return exact ? pathname === href : pathname.startsWith(href);
+}
+
 export function DashboardNav() {
   const pathname = usePathname();
   return (
     <nav aria-label="Main" className="flex items-center gap-1">
-      {LINKS.map(({ href, label, exact }) => {
-        const active = exact ? pathname === href : pathname.startsWith(href);
+      {DASHBOARD_LINKS.map(({ href, label, exact }) => {
+        const active = isActiveLink(pathname, href, exact);
         return (
           <Link
             key={href}

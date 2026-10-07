@@ -85,7 +85,7 @@ export function MessageComposer({
       onSubmit={submit}
       noValidate
       className={cn(
-        "flex flex-col gap-2 rounded-xl border p-3",
+        "flex flex-col gap-2 rounded-xl border p-2 md:p-3",
         isNote ? "border-chart-2 bg-chart-2/10 border-dashed" : "bg-card",
       )}
     >
@@ -101,7 +101,7 @@ export function MessageComposer({
               setError(null);
             }}
             className={cn(
-              "rounded-md px-2.5 py-1 text-sm transition-colors outline-none focus-visible:ring-2",
+              "rounded-md px-2 py-0.5 text-xs transition-colors outline-none focus-visible:ring-2 md:px-2.5 md:py-1 md:text-sm",
               mode === id
                 ? "bg-accent text-accent-foreground font-medium"
                 : "text-muted-foreground hover:text-foreground",
@@ -121,7 +121,8 @@ export function MessageComposer({
         onChange={(event) => setBody(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder={current.placeholder}
-        rows={3}
+        rows={2}
+        className="min-h-12 md:min-h-16"
         maxLength={MAX_MESSAGE_LENGTH}
         disabled={blocked}
         aria-invalid={error ? true : undefined}
@@ -138,8 +139,10 @@ export function MessageComposer({
         </Alert>
       ) : null}
 
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground text-xs">Ctrl/Cmd + Enter to send</span>
+      <div className="flex items-center justify-end gap-2 md:justify-between">
+        <span className="text-muted-foreground hidden text-xs md:inline">
+          Ctrl/Cmd + Enter to send
+        </span>
         <Button type="submit" size="sm" disabled={blocked}>
           {current.submit}
         </Button>

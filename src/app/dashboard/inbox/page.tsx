@@ -45,8 +45,14 @@ export default async function InboxPage({
   const hasSelection = params.selectedId !== null;
 
   return (
-    <main className="mx-auto flex w-full max-w-[96rem] flex-col gap-4 px-4 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <main className="mx-auto flex h-full min-h-0 w-full max-w-[96rem] flex-col gap-4 px-4 py-4 md:py-6">
+      <div
+        className={cn(
+          "flex shrink-0 flex-wrap items-center justify-between gap-3",
+          // Phones show one pane at a time: the open conversation owns the whole screen.
+          hasSelection && "hidden md:flex",
+        )}
+      >
         <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
         <div className="flex items-center gap-2">
           <form method="get" action="/dashboard/inbox" role="search" className="flex gap-2">
@@ -63,7 +69,7 @@ export default async function InboxPage({
               placeholder="Search subject or customer"
               aria-label="Search conversations"
               maxLength={100}
-              className="w-64"
+              className="w-full min-w-0 sm:w-64"
             />
             <Button type="submit" variant="outline">
               Search
@@ -78,7 +84,12 @@ export default async function InboxPage({
       </div>
 
       {params.customerId ? (
-        <p className="text-muted-foreground text-sm">
+        <p
+          className={cn(
+            "text-muted-foreground shrink-0 text-sm",
+            hasSelection && "hidden md:block",
+          )}
+        >
           Showing conversations for one customer.{" "}
           <Link
             href={inboxHref({ ...current, c: null }, { customer: null })}
@@ -89,21 +100,30 @@ export default async function InboxPage({
         </p>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[13rem_minmax(20rem,26rem)_1fr]">
-        <aside className={cn(hasSelection && "hidden lg:block")}>
+      {/* lg: filters | list | conversation. md: list | conversation (filters become a compact row).
+          below md: list OR conversation. Every pane scrolls on its own; the page does not. */}
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-4 md:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:grid-cols-[13rem_minmax(20rem,26rem)_minmax(0,1fr)]">
+        <aside className="hidden min-h-0 overflow-y-auto lg:block">
           <InboxSidebar view={params.view} q={params.q} customer={params.customerId} />
         </aside>
 
-        <div className={cn(hasSelection && "hidden lg:block")}>
-          <ConversationListView
-            query={params.query}
-            current={current}
-            initialData={serialize(result)}
-            canCreate={ctx.can("create_conversations")}
-          />
+        <div
+          className={cn("flex min-h-0 min-w-0 flex-col gap-3", hasSelection && "hidden md:flex")}
+        >
+          <div className="shrink-0 overflow-x-auto lg:hidden">
+            <InboxSidebar view={params.view} q={params.q} customer={params.customerId} compact />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <ConversationListView
+              query={params.query}
+              current={current}
+              initialData={serialize(result)}
+              canCreate={ctx.can("create_conversations")}
+            />
+          </div>
         </div>
 
-        <div className={cn(!hasSelection && "hidden lg:block")}>
+        <div className={cn("flex min-h-0 min-w-0 flex-col", !hasSelection && "hidden md:flex")}>
           {params.selectedId ? (
             <SelectedConversation
               ctx={ctx}
@@ -111,11 +131,9 @@ export default async function InboxPage({
               closeHref={closeHref}
             />
           ) : (
-            <div className="hidden lg:block">
-              <Alert>
-                <AlertDescription>Select a conversation to read it and reply.</AlertDescription>
-              </Alert>
-            </div>
+            <Alert>
+              <AlertDescription>Select a conversation to read it and reply.</AlertDescription>
+            </Alert>
           )}
         </div>
       </div>

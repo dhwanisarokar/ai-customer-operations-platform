@@ -32,7 +32,7 @@ export function AskAiButton({
           <SparklesIcon aria-hidden="true" />
           {ai.isPending ? "Generating AI reply..." : "Ask AI"}
         </Button>
-        <span className="text-muted-foreground text-xs">
+        <span className="text-muted-foreground hidden text-xs sm:inline">
           Drafts a reply from your published knowledge. Review it before relying on it.
         </span>
       </div>
