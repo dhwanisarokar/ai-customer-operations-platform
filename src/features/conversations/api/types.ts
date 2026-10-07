@@ -20,6 +20,17 @@ export const DEFAULT_MESSAGES_LIMIT = 50;
 export const MAX_MESSAGES_LIMIT = 200;
 export const DEFAULT_EVENTS_PARAMS: EventsParams = { page: 1, pageSize: 100 };
 
+/**
+ * A suggested reply from POST /ai-draft. It is NOT a message and is never stored: a person reviews
+ * (and may edit) it, then sends it through the normal send-message flow.
+ */
+export type AiDraftResponse = {
+  draft: string;
+  grounded: boolean;
+  intent: string;
+  sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
+};
+
 /** What the composer submits. `type` and `from` mirror the API contract. */
 export type SendMessageInput = {
   body: string;

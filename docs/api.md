@@ -290,18 +290,16 @@ Sets ARCHIVED and deletes embeddings. `200 { document }`.
 
 Permanently deletes the document and its chunks. `204`. Errors: 401, 403, 404.
 
-## AI reply
+## AI draft
 
-### `POST /api/conversations/:conversationId/ai-reply` (send_messages: any member)
+### `POST /api/conversations/:conversationId/ai-draft` (send_messages: any member)
 
 No parameters (empty body or `{}`; anything else is `400`). Retrieves this organization's published
-knowledge, asks the AI agent for a grounded reply and stores it as an `AI_AGENT` message.
-`201 { message }` where message is `{ id, senderType: "AI_AGENT", senderUserId: null, messageType,
-body, createdAt, sender: null, ai: { provider, model, grounded, sources: [{documentId,
-documentTitle, chunkId, chunkIndex}] } }`. The same `ai` field appears on AI messages in
-`GET .../messages`. Details: [ai-agent.md](ai-agent.md).
+knowledge and asks the AI agent for a suggested reply. **Read-only**: nothing is stored and nothing is
+sent. `200 { draft, grounded, intent, sources: [{documentId, documentTitle, chunkId, chunkIndex}] }`.
+A person reviews/edits the draft and sends it with `POST .../messages` (an ordinary message from that
+member). Details: [ai-agent.md](ai-agent.md).
 
-Errors: 400, 401, 404, 409 (resolved; no customer message to answer; another AI reply in flight),
-500 (storing failed; nothing was stored), 502 `ai_unavailable` / `ai_invalid_response` /
-`ai_embedding_failed`, 503 `ai_not_configured`, 504 `ai_timeout`. Provider details are never in
-the response. Nothing is stored on any error.
+Errors: 400, 401, 404, 409 (resolved; no customer message to answer; another draft in flight),
+502 `ai_unavailable` / `ai_invalid_response` / `ai_embedding_failed`, 503 `ai_not_configured`,
+504 `ai_timeout`. Provider details are never in the response.

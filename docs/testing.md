@@ -92,15 +92,15 @@ repositories, Prisma, **real PostgreSQL with pgvector**) runs for real.
 pgvector is required for the integration tests: the CI service container is `pgvector/pgvector`,
 and locally use a PostgreSQL that has the extension (the migration runs `CREATE EXTENSION vector`).
 
-| File                                        | Covers                                                                                                                                                                                                                                                          |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `integration/knowledge.test.ts`             | CRUD, validation, list/search/filter/sort/pagination, publish/unpublish/archive/delete, chunk + 768-dim embedding creation, stale-chunk invalidation on edit, failed embedding leaves consistent state, concurrent edit (409), RBAC, tenant isolation.          |
-| `integration/knowledge-search.test.ts`      | Similarity ordering and scores, threshold, limit, published-only, stale-version exclusion, cross-organization isolation, no embeddings exposed.                                                                                                                 |
-| `integration/knowledge-constraints.test.ts` | Composite FK (cross-tenant chunk rejected), vector dimension enforced by PostgreSQL, CHECK constraints, cascades.                                                                                                                                               |
-| `integration/ai-reply.test.ts`              | Grounded reply stored as `AI_AGENT` with sources/metadata/usage, uncertainty without knowledge, context contents and bounds, internal notes excluded, tenant isolation, preconditions, every failure mode, rollback, concurrency, prompt-injection regressions. |
-| `integration/knowledge-ui.test.tsx`         | Server-renders the knowledge table and the AI message ("AI Agent", "Based on: ...") from real data.                                                                                                                                                             |
-| `src/server/ai/**/*.test.ts`                | Provider (SDK mocked): generation, usage mapping, errors, timeouts, empty/blocked output, embedding batching/format/dimensions; config; embedding validation; prompts and sanitization; context bounds; the agent pipeline with injection cases.                |
-| `src/features/knowledge/*.test.*`           | Chunking (determinism, overlap, limits), schemas, list params, form and action components.                                                                                                                                                                      |
+| File                                        | Covers                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `integration/knowledge.test.ts`             | CRUD, validation, list/search/filter/sort/pagination, publish/unpublish/archive/delete, chunk + 768-dim embedding creation, stale-chunk invalidation on edit, failed embedding leaves consistent state, concurrent edit (409), RBAC, tenant isolation.                                                               |
+| `integration/knowledge-search.test.ts`      | Similarity ordering and scores, threshold, limit, published-only, stale-version exclusion, cross-organization isolation, no embeddings exposed.                                                                                                                                                                      |
+| `integration/knowledge-constraints.test.ts` | Composite FK (cross-tenant chunk rejected), vector dimension enforced by PostgreSQL, CHECK constraints, cascades.                                                                                                                                                                                                    |
+| `integration/ai-draft.test.ts`              | Draft returned with sources and nothing stored (no message, counters or events), sending a draft creates one ordinary agent message, uncertainty without knowledge, context contents and bounds, internal notes excluded, tenant isolation, preconditions, failure modes, concurrency, prompt-injection regressions. |
+| `integration/knowledge-ui.test.tsx`         | Server-renders the knowledge table and the compose box with an AI suggestion ("Based on: ...") from real data.                                                                                                                                                                                                       |
+| `src/server/ai/**/*.test.ts`                | Provider (SDK mocked): generation, usage mapping, errors, timeouts, empty/blocked output, embedding batching/format/dimensions; config; embedding validation; prompts and sanitization; context bounds; the agent pipeline with injection cases.                                                                     |
+| `src/features/knowledge/*.test.*`           | Chunking (determinism, overlap, limits), schemas, list params, form and action components.                                                                                                                                                                                                                           |
 
 ### Real Gemini smoke test (manual)
 
@@ -126,7 +126,17 @@ in [rag.md](rag.md).
   many spellings, support questions incl. greeting + question, out-of-scope, injection, precedence).
 - `tests/integration/ai-conversation-policy.test.ts` — through the real route with the fake provider:
   small talk, off-topic and injection make **zero** embedding/generation calls; support questions still
-  run RAG and cite the real source; unknown questions stay ungrounded; all replies are `AI_AGENT`.
+  run RAG and cite the real source; unknown questions stay ungrounded; all results are drafts and nothing is stored.
 - `conversation-timeline-ai.test.tsx` — no source line for small talk, disclaimer for out-of-scope.
-- The model-level injection regression tests in `ai-reply.test.ts` use phrasings that pass the policy
+- The model-level injection regression tests in `ai-draft.test.ts` use phrasings that pass the policy
   filter on purpose, so the layered model defenses stay covered.
+
+## AI draft and human review (Phase 4.9)
+
+- `ai-draft.test.ts` (integration): the endpoint returns `{ draft, grounded, intent, sources }`, stores
+  nothing, leaves counters/events untouched, and sending the draft through `/messages` creates exactly
+  one ordinary `USER` message.
+- `conversation-pane.test.tsx`: suggestion pre-fills the single compose box with source/warning, no message in the history,
+  edit and discard create nothing, asking again replaces the draft, Send to customer goes through the
+  optimistic outbox (one sent message), AI failure leaves no draft.
+- `ask-ai-button.test.tsx` and the hook tests cover pending, success and failure of the mutation.

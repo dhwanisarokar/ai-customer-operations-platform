@@ -10,6 +10,7 @@ import {
 } from "@/lib/query/optimistic";
 import { useOutbox } from "@/lib/query/outbox";
 import type {
+  AiDraftResponse,
   ConversationDetailResponse,
   ConversationJson,
   ConversationListResponse,
@@ -287,24 +288,19 @@ export function useMessageOutbox(conversationId: string) {
 }
 
 /**
- * Asks the server-side AI agent for a reply. This is deliberately NOT optimistic and NOT a cached
- * query: nothing is shown until the server has produced and stored a real AI_AGENT message. While
- * it runs, `isPending` (and `useIsMutating` on the same key) drive the "Generating..." state.
+ * Asks the server-side AI agent for a suggested reply. The result is a DRAFT for a person to review:
+ * the endpoint stores nothing, so there is nothing to put in or invalidate from the cache. Sending
+ * the (possibly edited) draft goes through the normal message outbox. `isPending` drives the
+ * "Generating..." state; it is UI state, never a message.
  */
-export function useAiReply(conversationId: string) {
-  const queryClient = useQueryClient();
+export function useAiDraft(conversationId: string) {
   const org = useOrganizationScope();
 
   return useMutation({
-    mutationKey: mutationKeys.aiReply(org, conversationId),
+    mutationKey: mutationKeys.aiDraft(org, conversationId),
     mutationFn: () =>
-      fetchJson<{ message: MessageJson }>(`/api/conversations/${conversationId}/ai-reply`, {
+      fetchJson<AiDraftResponse>(`/api/conversations/${conversationId}/ai-draft`, {
         method: "POST",
       }),
-    // The stored AI_AGENT message is added to the cache in the same step that ends the pending state.
-    onSuccess: ({ message }) => appendMessageToCache(queryClient, org, conversationId, message),
-    // Not returned on purpose: returning the promise would keep the mutation "pending" until the
-    // refetch finished, leaving the pending UI visible next to the already-stored real message.
-    onSettled: () => void refreshConversation(queryClient, org, conversationId),
   });
 }

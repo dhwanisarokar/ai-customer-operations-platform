@@ -31,7 +31,7 @@ export type NewMessage = {
   senderUserId: string | null;
   messageType: MessageType;
   body: string;
-  /** AI messages only: provenance (see src/server/services/ai-reply.ts). */
+  /** AI messages only (created before Phase 4.9; new AI results are drafts): provenance. */
   metadata?: Prisma.InputJsonValue;
   /** Lets a service stamp the message and the conversation counters with the same instant. */
   createdAt?: Date;

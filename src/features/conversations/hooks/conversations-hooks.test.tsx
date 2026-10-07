@@ -22,7 +22,7 @@ import type {
 } from "../api/types";
 import { listConversationsQuerySchema } from "../schemas";
 import {
-  useAiReply,
+  useAiDraft,
   useAssignConversation,
   useChangeConversationPriority,
   useChangeConversationStatus,
@@ -458,24 +458,32 @@ describe("sending messages (outbox)", () => {
   });
 });
 
-describe("Ask AI (a mutation, never optimistic)", () => {
-  it("is pending while the server works and adds no fake message to the cache", async () => {
+describe("Ask AI (generates a draft; stores nothing)", () => {
+  const draftBody = {
+    draft: "Refunds take 30 days.",
+    grounded: true,
+    intent: "SUPPORT",
+    sources: [{ documentId: "d1", documentTitle: "Refund policy", chunkId: "k1", chunkIndex: 0 }],
+  };
+  const key = conversationsKeys.messages(TEST_ORG, "c1", { limit: 50, includeInternal: true });
+  const seed = (client: ReturnType<typeof createTestQueryClient>) =>
+    client.setQueryData<MessagesResponse>(key, {
+      items: [message({ id: "m0", senderType: "CUSTOMER", senderUserId: null, sender: null })],
+      hasMore: false,
+      nextCursor: null,
+      total: 1,
+    });
+
+  it("is pending while the server works, then returns the draft without touching the message cache", async () => {
     const client = createTestQueryClient();
-    client.setQueryData<MessagesResponse>(
-      conversationsKeys.messages(TEST_ORG, "c1", { limit: 50, includeInternal: true }),
-      {
-        items: [message({ id: "m0", senderType: "CUSTOMER", senderUserId: null, sender: null })],
-        hasMore: false,
-        nextCursor: null,
-        total: 1,
-      },
-    );
+    seed(client);
     const gate = deferred<Response>();
-    mockApi({ "POST /api/conversations/c1/ai-reply": () => gate.promise });
+    const api = mockApi({ "POST /api/conversations/c1/ai-draft": () => gate.promise });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
     const { result } = renderHookWithQuery(
       () => ({
-        ai: useAiReply("c1"),
-        running: useIsMutating({ mutationKey: mutationKeys.aiReply(TEST_ORG, "c1") }),
+        ai: useAiDraft("c1"),
+        running: useIsMutating({ mutationKey: mutationKeys.aiDraft(TEST_ORG, "c1") }),
       }),
       { client },
     );
@@ -483,83 +491,35 @@ describe("Ask AI (a mutation, never optimistic)", () => {
     act(() => result.current.ai.mutate());
     await waitFor(() => expect(result.current.ai.isPending).toBe(true));
     expect(result.current.running).toBe(1);
-    const cached = client.getQueryData<MessagesResponse>(
-      conversationsKeys.messages(TEST_ORG, "c1", { limit: 50, includeInternal: true }),
-    )!;
-    expect(cached.items.map((m) => m.id)).toEqual(["m0"]);
-    expect(cached.items.some((m) => m.senderType === "AI_AGENT")).toBe(false);
 
-    gate.resolve(
-      json(201, {
-        message: message({
-          id: "ai1",
-          senderType: "AI_AGENT",
-          senderUserId: null,
-          sender: null,
-          body: "Hello!",
-        }),
-      }),
-    );
+    gate.resolve(json(200, draftBody));
     await waitFor(() => expect(result.current.ai.isSuccess).toBe(true));
+    expect(result.current.ai.data).toEqual(draftBody);
     expect(result.current.running).toBe(0);
-  });
-
-  it("refetches messages, the conversation, lists and events after success so the real AI_AGENT message appears", async () => {
-    const client = createTestQueryClient();
-    const real = message({
-      id: "ai1",
-      senderType: "AI_AGENT",
-      senderUserId: null,
-      sender: null,
-      body: "From the server",
-    });
-    const api = mockApi({
-      "POST /api/conversations/c1/ai-reply": () => json(201, { message: real }),
-      "GET /api/conversations/c1/messages": () =>
-        json(200, { items: [real], hasMore: false, nextCursor: null, total: 1 }),
-    });
-    const { result } = renderHookWithQuery(
-      () => ({
-        ai: useAiReply("c1"),
-        messages: useConversationMessages(
-          "c1",
-          { limit: 50, includeInternal: true },
-          { initialData: { items: [], hasMore: false, nextCursor: null, total: 0 } },
-        ),
-      }),
-      { client },
-    );
-    expect(result.current.messages.data?.items).toEqual([]);
-    act(() => result.current.ai.mutate());
-    await waitFor(() => expect(result.current.messages.data?.items[0]?.id).toBe("ai1"));
-    expect(result.current.messages.data?.items[0].senderType).toBe("AI_AGENT");
-    expect(api.count("POST", "/api/conversations/c1/ai-reply")).toBe(1);
+    expect(client.getQueryData<MessagesResponse>(key)!.items.map((m) => m.id)).toEqual(["m0"]);
+    expect(invalidate).not.toHaveBeenCalled(); // the server stored nothing, so nothing to refetch
+    expect(api.count("POST", "/api/conversations/c1/ai-draft")).toBe(1);
   });
 
   it("surfaces the safe error, adds nothing, and does not retry the generation automatically", async () => {
     const client = createTestQueryClient();
-    const key = conversationsKeys.messages(TEST_ORG, "c1", { limit: 50, includeInternal: true });
-    client.setQueryData<MessagesResponse>(key, {
-      items: [message({ id: "m0" })],
-      hasMore: false,
-      nextCursor: null,
-      total: 1,
-    });
+    seed(client);
     const api = mockApi({
-      "POST /api/conversations/c1/ai-reply": () =>
+      "POST /api/conversations/c1/ai-draft": () =>
         apiError(
           502,
           "ai_unavailable",
           "The AI service is temporarily unavailable. Please try again.",
         ),
     });
-    const { result } = renderHookWithQuery(() => useAiReply("c1"), { client });
+    const { result } = renderHookWithQuery(() => useAiDraft("c1"), { client });
     act(() => result.current.mutate());
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error?.message).toBe(
       "The AI service is temporarily unavailable. Please try again.",
     );
+    expect(result.current.isPending).toBe(false);
     expect(client.getQueryData<MessagesResponse>(key)!.items.map((m) => m.id)).toEqual(["m0"]);
-    expect(api.count("POST", "/api/conversations/c1/ai-reply")).toBe(1);
+    expect(api.count("POST", "/api/conversations/c1/ai-draft")).toBe(1);
   });
 });

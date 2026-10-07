@@ -80,15 +80,21 @@ Reconciliation is by **identity, never by text or timestamp**:
 The follow-up invalidation (`refreshConversation`) is fire-and-forget: it is not returned from
 `onSettled`, otherwise the mutation would stay pending until the refetch finished.
 
-AI generation is separate UI state: "AI Agent is writing a reply..." is derived from
-`useIsMutating(aiReply)` and is never a message. `useAiReply` writes the stored `AI_AGENT` message into
-the cache in `onSuccess`, in the same step the mutation stops being pending, so the indicator and the
-real reply never show together. On failure the indicator disappears and the error shows.
+AI generation is separate UI state, and its result is a **draft**, not a message:
+
+```text
+Ask AI -> useAiDraft (mutation; isPending = "Generating AI draft...")
+       -> draft held in ConversationPane state -> MessageComposer `suggestion` (single box, banner, Discard / Send)
+       -> Send -> the same outbox.send used for typed replies
+```
+
+`POST /ai-draft` stores nothing, so `useAiDraft` writes nothing to the cache and invalidates nothing.
+Asking again replaces the draft. On failure there is no draft and the error shows.
 
 ### Deliberately NOT optimistic
 
-- **AI reply** — the content is generated and grounded on the server; we show "AI Agent is writing a
-  reply..." and only render the real message on success. Errors show the safe API message.
+- **AI draft** — generated and grounded on the server; the UI shows "Generating AI draft..." and then an
+  editable draft that a human must send explicitly. Errors show the safe API message.
 - **Knowledge create/update/publish/unpublish/archive/delete** — publishing indexes embeddings and
   can fail; the UI shows "Indexing and publishing..." and waits.
 

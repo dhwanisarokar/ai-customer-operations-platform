@@ -13,9 +13,9 @@ customer message -> normalize -> classify
                           -> nothing relevant: safe fallback (never an invented answer)
 ```
 
-The decision runs on the server in `generateAiReply` (`src/server/services/ai-reply.ts`) after
+The decision runs on the server in `generateAiDraft` (`src/server/services/ai-draft.ts`) after
 authorization and tenant-scoped context loading. The browser does not decide anything; the API
-(`POST /api/conversations/:id/ai-reply`) is unchanged.
+(`POST /api/conversations/:id/ai-draft`, Phase 4.9) returns the result as a draft for human review.
 
 ## Intents
 
@@ -41,20 +41,20 @@ whitespace collapsed; the original message is never modified or replaced) and ap
 Only the latest customer message is classified. Retrieval still builds its query from the existing
 helper, unchanged.
 
-## Replies and persistence
+## Replies are drafts
 
-Direct replies are fixed strings in `responses.ts`: no model, so no hallucination and no cost. They
-are stored exactly like other AI replies: `senderType = AI_AGENT`, never a human, with metadata
-`intent`, `provider: "policy"`, `model: "none"`, `promptVersion: "CONVERSATION_POLICY_V1"`,
-`grounded: false`, `sources: []`. A `MESSAGE_SENT` event with actor `AI` is recorded as usual.
-
-`SUPPORT` replies keep the existing metadata and now also store `intent: "SUPPORT"`.
+Direct replies are fixed strings in `responses.ts`: no model, so no hallucination and no cost. Like
+every AI result they are returned as a **draft** (`{ draft, grounded: false, intent, sources: [] }`);
+nothing is stored and nothing is sent until a person sends it. Support drafts add `grounded` and the
+real `sources`. See [ai-agent.md](ai-agent.md).
 
 ## UI
 
+In the AI suggestion banner above the compose box:
+
 - Small talk shows no source line (no knowledge lookup happened).
-- Out-of-scope and ungrounded replies keep "Not based on your knowledge base."
-- Grounded replies still show "Based on:" with the real cited documents.
+- Out-of-scope and ungrounded drafts show "Not based on your knowledge base".
+- Grounded drafts show "Based on:" with the real cited documents.
 
 ## Unknown support questions
 
@@ -76,7 +76,7 @@ information" answer. Skipping the pipeline removes all three problems.
 
 ## Observability
 
-The AI reply log line includes `intent` (plus ids and measurements). It never logs customer text,
+The AI draft log line includes `intent` (plus ids and measurements). It never logs customer text,
 replies, prompts or secrets.
 
 ## Limitations

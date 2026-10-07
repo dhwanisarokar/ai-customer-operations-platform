@@ -47,7 +47,6 @@ export function ConversationTimeline({
   names,
   onRetry,
   onDiscard,
-  aiPending = false,
 }: {
   messages: TimelineMessage[];
   events: TimelineSystemEvent[];
@@ -55,8 +54,6 @@ export function ConversationTimeline({
   names: ReadonlyMap<string, string>;
   onRetry?: (clientId: string) => void;
   onDiscard?: (clientId: string) => void;
-  /** An AI reply is being generated on the server (no placeholder message is created). */
-  aiPending?: boolean;
 }) {
   const entries: Entry[] = [
     ...messages.map((message): Entry => ({
@@ -79,7 +76,7 @@ export function ConversationTimeline({
       })),
   ].sort((a, b) => a.at - b.at);
 
-  if (entries.length === 0 && !aiPending) {
+  if (entries.length === 0) {
     return <p className="text-muted-foreground py-8 text-center text-sm">No messages yet.</p>;
   }
 
@@ -111,11 +108,6 @@ export function ConversationTimeline({
           </li>
         );
       })}
-      {aiPending ? (
-        <li role="status" className="text-muted-foreground self-end text-xs">
-          AI Agent is writing a reply...
-        </li>
-      ) : null}
     </ol>
   );
 }
@@ -207,11 +199,7 @@ function AiSources({ ai }: { ai: TimelineMessage["ai"] }) {
   // Small talk involved no knowledge lookup, so there is nothing to attribute (or disclaim).
   if (ai?.intent === "CONVERSATIONAL") return null;
   if (!ai || !ai.grounded || ai.sources.length === 0) {
-    return (
-      <p className="text-muted-foreground text-xs">
-        Not based on your knowledge base. Review before sending anything to the customer.
-      </p>
-    );
+    return <p className="text-muted-foreground text-xs">Not based on your knowledge base</p>;
   }
   const titles = [...new Set(ai.sources.map((source) => source.documentTitle))];
   return (

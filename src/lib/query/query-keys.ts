@@ -66,5 +66,5 @@ export const mutationKeys = {
     [...conversationsKeys.item(org, id), "mutation", action] as const,
   customerTags: (org: OrgId, id: string) =>
     [...customersKeys.item(org, id), "mutation", "tags"] as const,
-  aiReply: (org: OrgId, id: string) => mutationKeys.conversation(org, id, "ai-reply"),
+  aiDraft: (org: OrgId, id: string) => mutationKeys.conversation(org, id, "ai-draft"),
 };

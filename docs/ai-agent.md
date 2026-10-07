@@ -5,21 +5,21 @@ and performs no business actions (no refunds, cancellations, record edits or ema
 what to do with the reply.
 
 ```text
-Conversation  ->  AI reply service  ->  AI agent  ->  AIProvider (interface)  ->  Gemini provider  ->  Gemini API
+Conversation  ->  AI draft service  ->  AI agent  ->  AIProvider (interface)  ->  Gemini provider  ->  Gemini API
                   (auth, context,       (retrieve,       src/server/ai/provider.ts     src/server/ai/gemini/*
                    persistence)          prompt, validate)
 ```
 
 Code map: `src/server/ai/` (`config.ts`, `types.ts`, `provider.ts`, `errors.ts`, `client.ts`,
 `embeddings.ts`, `gemini/*`, `agent/{agent,context,prompts,types}.ts`),
-`src/server/services/ai-reply.ts` (orchestration and persistence),
-`src/app/api/conversations/[conversationId]/ai-reply/route.ts`.
+`src/server/services/ai-draft.ts` (orchestration; read-only),
+`src/app/api/conversations/[conversationId]/ai-draft/route.ts`.
 
 ## Conversation policy (Phase 4.6)
 
 Before retrieval, a deterministic policy classifies the latest customer message. Small talk,
 off-topic requests and obvious injection attempts get fixed replies (no embedding, search or model
-call, still stored as `AI_AGENT`); everything else runs the pipeline below unchanged. See
+call; still only a draft); everything else runs the pipeline below unchanged. See
 [ai-conversation-policy](ai-conversation-policy.md).
 
 ## Provider abstraction
@@ -36,29 +36,45 @@ Provider failures are mapped to safe application errors (`ai_unavailable` 502, `
 `ai_invalid_response` 502, `ai_embedding_failed` 502, `ai_not_configured` 503). The provider's own
 message, status and request details are logged server-side and never returned to clients.
 
+## Draft, then human review (Phase 4.9)
+
+Ask AI produces a **draft**, never a message. Nothing is sent to the customer and nothing is stored
+until a person reviews the text and sends it.
+
+```text
+Ask AI -> POST /ai-draft -> { draft, grounded, intent, sources }   (read-only, stores nothing)
+       -> the suggestion is placed in the ONE compose box (local UI state) with a small banner: sources / warning, Discard
+       -> Send reply -> the normal POST /messages flow (outbox, optimistic bubble)
+       -> an ordinary agent message (senderType USER, sent by the human who approved it)
+```
+
+Asking again replaces the current draft. The draft is not persisted: navigating away discards it.
+`AI_AGENT` messages remain valid in the schema and are still rendered for conversations created
+before Phase 4.9, but new ones are no longer created by this flow.
+
 ## The request
 
-`POST /api/conversations/:conversationId/ai-reply` takes **no parameters** (an empty body or `{}`).
+`POST /api/conversations/:conversationId/ai-draft` takes **no parameters** (an empty body or `{}`).
 The conversation, customer and organization come from the server. Permission: `send_messages`
-(every member role), because the result is a stored message in the conversation. A separate AI
-permission was not added: it would be a switch nothing needs yet, and it can be introduced when
-per-role AI policies or billing limits arrive.
+(every member role), because the human is expected to send the result. A separate AI permission was
+not added: it would be a switch nothing needs yet.
 
 Flow:
 
 1. Authenticate; resolve the organization context; check permission.
 2. Load the conversation in this organization (foreign ids are `404`); refuse RESOLVED (`409`).
-3. Refuse if another AI reply for the same conversation is in flight (`409`; in-process guard, see
+3. Refuse if another draft for the same conversation is in flight (`409`; in-process guard, see
    limitations).
 4. Build context from the database: the customer's name, company and status only; the last 12
    customer-facing messages (internal notes excluded); a query from the latest customer message.
    No customer message to answer: `409`.
-5. Retrieve published knowledge for **this organization** above the threshold ([rag.md](rag.md)).
-6. Build the delimited prompt and call Gemini with structured output (JSON schema).
-7. Validate the response (below).
-8. In ONE transaction: create the `AI_AGENT` message, update the conversation's last-message
-   fields, record a `MESSAGE_SENT` event (actor type `AI`, `requestedByUserId` in metadata) and mark
-   the conversation read for the requester. Re-checks that the conversation is still not resolved.
+5. Conversation policy ([ai-conversation-policy.md](ai-conversation-policy.md)): small talk,
+   off-topic and injection get fixed text and skip steps 6-8.
+6. Retrieve published knowledge for **this organization** above the threshold ([rag.md](rag.md)).
+7. Build the delimited prompt and call Gemini with structured output (JSON schema).
+8. Validate the response (below).
+9. Return `{ draft, grounded, intent, sources }`. **Nothing is written**: no message, no counters, no
+   event, no read-state change. The log line carries ids, `intent` and measurements only.
 
 ### What the model is given (and not given)
 
@@ -72,19 +88,13 @@ Flow:
 The agent has no database or network access: it receives a string and returns a string.
 Authorization is deterministic application code; the model never decides who may do what.
 
-### Persisted message
+### The draft and the message it may become
 
-`senderType = AI_AGENT`, `senderUserId = NULL` (a database CHECK forbids a user id on non-USER
-senders), so the data model can never present an AI reply as a human's. `metadata` (JSON) holds:
-`kind`, `provider`, `model`, `promptVersion` (`AI_SUPPORT_AGENT_V1`), `grounded`, `validation`,
-`retrievedChunkIds`, `sources` (`label`, `documentId`, `documentTitle`, `chunkId`, `chunkIndex`,
-`similarity`), `usage` (`inputTokens`, `outputTokens`, `totalTokens`), `latencyMs`,
-`requestedByUserId`. It never holds the prompt, the system instruction, API keys or raw provider
-errors. APIs expose only a safe projection (`ai`: provider, model, grounded, source documents).
-
-Usage numbers are exactly what Gemini reports, or `null` when it reports none (never estimated).
-Note `totalTokens` includes the model's internal reasoning tokens, so it can exceed
-`inputTokens + outputTokens`.
+The response contains only `draft`, `grounded`, `intent` and `sources` (`documentId`, `documentTitle`,
+`chunkId`, `chunkIndex`): no prompt, usage, embeddings or provider details. When a person sends the
+draft it is stored like any typed reply: `senderType = USER` with their user id, so the data model
+presents it as sent by that member, not as an autonomous AI message. (A database CHECK still forbids a
+user id on non-USER senders, so `AI_AGENT` messages from before Phase 4.9 can never look human.)
 
 ## System prompt and structure
 
@@ -115,7 +125,7 @@ Customer messages and knowledge text are untrusted data. Defences, in layers:
 
 This reduces risk; it does not make injection impossible. The canary-phrase leak check is
 best-effort. Regression tests cover override attempts, malicious knowledge, requests for secrets
-and for other customers' data (`tests/integration/ai-reply.test.ts`,
+and for other customers' data (`tests/integration/ai-draft.test.ts`,
 `src/server/ai/agent/*.test.ts`).
 
 ## Response validation

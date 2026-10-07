@@ -109,20 +109,6 @@ describe("ConversationPane", () => {
     expect(screen.queryByText("Will fail")).not.toBeInTheDocument();
   });
 
-  it("shows an AI pending row while the reply is generated, never optimistically", async () => {
-    const gate = deferred<Response>();
-    mockApi({ ...baseRoutes(), "POST /api/conversations/c1/ai-reply": () => gate.promise });
-    const user = userEvent.setup();
-    renderPane();
-    await user.click(screen.getByRole("button", { name: "Ask AI" }));
-
-    expect(await screen.findByText(/AI Agent is writing a reply/i)).toBeInTheDocument();
-    gate.resolve(json(201, { message: message({ senderType: "AI_AGENT", body: "Answer" }) }));
-    await waitFor(() =>
-      expect(screen.queryByText(/AI Agent is writing a reply/i)).not.toBeInTheDocument(),
-    );
-  });
-
   it("shows the sent message exactly once while the refetch is still in flight, and after it", async () => {
     const refetch = deferred<Response>();
     let gets = 0;
@@ -185,37 +171,129 @@ describe("ConversationPane", () => {
     expect(api.count("POST", "/api/conversations/c1/messages")).toBe(2);
   });
 
-  it("drops the AI pending row the moment the real AI message is rendered (no duplicate)", async () => {
-    const refetch = deferred<Response>();
-    let gets = 0;
-    mockApi({
+  describe("AI suggestion in the single compose box", () => {
+    const groundedDraft = {
+      draft: "Refunds take 30 days.",
+      grounded: true,
+      intent: "SUPPORT",
+      sources: [{ documentId: "d1", documentTitle: "Refund policy", chunkId: "k1", chunkIndex: 0 }],
+    };
+    const ungroundedDraft = { draft: "Not sure.", grounded: false, intent: "SUPPORT", sources: [] };
+    const draftRoute = (body: unknown) => ({
       ...baseRoutes(),
-      "POST /api/conversations/c1/ai-reply": () =>
-        json(201, { message: message({ id: "ai1", senderType: "AI_AGENT", body: "Real answer" }) }),
-      "GET /api/conversations/c1/messages": () =>
-        ++gets === 1 ? refetch.promise : json(200, initial.messages),
+      "POST /api/conversations/c1/ai-draft": () => json(200, body),
     });
-    const user = userEvent.setup();
-    renderPane();
-    await user.click(screen.getByRole("button", { name: "Ask AI" }));
 
-    // The refetch is still running, yet the pending row is gone and the real reply shows once.
-    expect(await screen.findByText("Real answer")).toBeInTheDocument();
-    expect(screen.queryByText(/AI Agent is writing a reply/i)).not.toBeInTheDocument();
-    expect(screen.getAllByText("Real answer")).toHaveLength(1);
-    refetch.resolve(json(200, initial.messages));
-  });
+    it("Ask AI pre-fills the ONE compose box (no second text box) and adds no message", async () => {
+      const api = mockApi(draftRoute(groundedDraft));
+      const user = userEvent.setup();
+      renderPane();
+      await user.click(screen.getByRole("button", { name: "Ask AI" }));
 
-  it("clears the AI pending row when generation fails", async () => {
-    mockApi({
-      ...baseRoutes(),
-      "POST /api/conversations/c1/ai-reply": () =>
-        apiError(502, "ai_unavailable", "The AI service is temporarily unavailable."),
+      const box = await screen.findByDisplayValue("Refunds take 30 days.");
+      expect(screen.getAllByRole("textbox")).toHaveLength(1);
+      expect(box).toHaveAttribute("id", "composer-body");
+      const banner = screen.getByRole("status", { name: "AI suggested reply" });
+      expect(banner).toHaveTextContent("Based on: Refund policy");
+      expect(screen.getAllByRole("button", { name: "Send reply" })).toHaveLength(1);
+      expect(screen.queryByRole("article", { name: "AI message" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("article", { name: "Agent message" })).not.toBeInTheDocument();
+      expect(api.count("POST", "/api/conversations/c1/messages")).toBe(0);
     });
-    const user = userEvent.setup();
-    renderPane();
-    await user.click(screen.getByRole("button", { name: "Ask AI" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("temporarily unavailable");
-    expect(screen.queryByText(/AI Agent is writing a reply/i)).not.toBeInTheDocument();
+
+    it("an ungrounded suggestion shows the warning, still only as an unsent draft", async () => {
+      mockApi(draftRoute(ungroundedDraft));
+      const user = userEvent.setup();
+      renderPane();
+      await user.click(screen.getByRole("button", { name: "Ask AI" }));
+      const banner = await screen.findByRole("status", { name: "AI suggested reply" });
+      expect(banner).toHaveTextContent("Not based on your knowledge base");
+      expect(banner).not.toHaveTextContent("Review before sending");
+    });
+
+    it("editing changes only the box; Discard empties it and removes the banner, nothing is created", async () => {
+      const api = mockApi(draftRoute(groundedDraft));
+      const user = userEvent.setup();
+      renderPane();
+      await user.click(screen.getByRole("button", { name: "Ask AI" }));
+      const box = await screen.findByDisplayValue("Refunds take 30 days.");
+      await user.clear(box);
+      await user.type(box, "Edited text");
+      expect(screen.getByRole("textbox")).toHaveValue("Edited text");
+      expect(api.count("POST", "/api/conversations/c1/messages")).toBe(0);
+
+      await user.click(screen.getByRole("button", { name: "Discard" }));
+      expect(screen.queryByRole("status", { name: "AI suggested reply" })).not.toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toHaveValue("");
+      expect(api.count("POST", "/api/conversations/c1/messages")).toBe(0);
+    });
+
+    it("asking again replaces the suggestion (still one box, one banner)", async () => {
+      let n = 0;
+      mockApi({
+        ...baseRoutes(),
+        "POST /api/conversations/c1/ai-draft": () =>
+          json(200, { ...ungroundedDraft, draft: ++n === 1 ? "Draft A" : "Draft B" }),
+      });
+      const user = userEvent.setup();
+      renderPane();
+      await user.click(screen.getByRole("button", { name: "Ask AI" }));
+      await screen.findByDisplayValue("Draft A");
+      await user.click(screen.getByRole("button", { name: "Ask AI" }));
+      await screen.findByDisplayValue("Draft B");
+      expect(screen.getAllByRole("textbox")).toHaveLength(1);
+      expect(screen.getAllByRole("status", { name: "AI suggested reply" })).toHaveLength(1);
+    });
+
+    it("sending uses the normal message flow: optimistic bubble, then exactly one sent message", async () => {
+      const gate = deferred<Response>();
+      const posted: ReturnType<typeof message>[] = [];
+      const api = mockApi({
+        ...baseRoutes(),
+        ...withPersisted(posted),
+        "POST /api/conversations/c1/ai-draft": () => json(200, groundedDraft),
+        "POST /api/conversations/c1/messages": () => gate.promise,
+      });
+      const user = userEvent.setup();
+      renderPane();
+      await user.click(screen.getByRole("button", { name: "Ask AI" }));
+      const box = await screen.findByDisplayValue("Refunds take 30 days.");
+      await user.clear(box);
+      await user.type(box, "Edited and approved");
+      await user.click(screen.getByRole("button", { name: "Send reply" }));
+
+      // The banner is gone, the box is empty again, and the text is an ordinary agent bubble.
+      expect(screen.queryByRole("status", { name: "AI suggested reply" })).not.toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toHaveValue("");
+      const bubble = await screen.findByRole("article", { name: "Agent message" });
+      expect(bubble).toHaveTextContent("Edited and approved");
+      expect(within(bubble).getByRole("img", { name: "Sending" })).toBeInTheDocument();
+      expect(
+        api.calls.find((c) => c.url.endsWith("/messages") && c.method === "POST")!.body,
+      ).toEqual({ body: "Edited and approved", type: "MESSAGE", from: "USER" });
+
+      const saved = message({ id: "m-ai", body: "Edited and approved", senderType: "USER" });
+      posted.push(saved);
+      gate.resolve(json(201, { message: saved }));
+      await waitFor(() => expect(screen.getByRole("img", { name: "Sent" })).toBeInTheDocument());
+      expect(screen.getAllByText("Edited and approved")).toHaveLength(1);
+      expect(screen.queryByRole("article", { name: "AI message" })).not.toBeInTheDocument();
+    });
+
+    it("a failed AI request leaves the box untouched and creates no message", async () => {
+      mockApi({
+        ...baseRoutes(),
+        "POST /api/conversations/c1/ai-draft": () =>
+          apiError(502, "ai_unavailable", "The AI service is temporarily unavailable."),
+      });
+      const user = userEvent.setup();
+      renderPane();
+      await user.type(screen.getByRole("textbox"), "my own text");
+      await user.click(screen.getByRole("button", { name: "Ask AI" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("temporarily unavailable");
+      expect(screen.queryByRole("status", { name: "AI suggested reply" })).not.toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toHaveValue("my own text");
+      expect(screen.getByRole("button", { name: "Ask AI" })).toBeEnabled();
+    });
   });
 });

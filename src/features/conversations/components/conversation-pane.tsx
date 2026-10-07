@@ -1,6 +1,5 @@
 "use client";
 
-import { useIsMutating } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -11,11 +10,10 @@ import { useMembers } from "@/features/organizations/hooks/queries";
 import { ApiError } from "@/lib/api-client";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { mutationKeys } from "@/lib/query/query-keys";
-import { useOrganizationScope } from "@/lib/query/query-provider";
 import {
   DEFAULT_MESSAGES_LIMIT,
   MAX_MESSAGES_LIMIT,
+  type AiDraftResponse,
   type ConversationDetailResponse,
   type ConversationEventsResponse,
   type MembersResponse,
@@ -59,7 +57,6 @@ export function ConversationPane({
   can,
   closeHref,
 }: Props) {
-  const org = useOrganizationScope();
   const [limit, setLimit] = useState(DEFAULT_MESSAGES_LIMIT);
 
   const conversationQuery = useConversation(conversationId, { initialData: initial.conversation });
@@ -77,7 +74,9 @@ export function ConversationPane({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Phones: status/priority/assignee are tucked behind a toggle so the messages get the screen.
   const [controlsOpen, setControlsOpen] = useState(false);
-  const aiRunning = useIsMutating({ mutationKey: mutationKeys.aiReply(org, conversationId) }) > 0;
+  // The AI suggestion is local UI state (never a message) until a person sends it.
+  const [aiDraft, setAiDraft] = useState<(AiDraftResponse & { id: number }) | null>(null);
+  const draftCounter = useRef(0);
 
   // Opening a conversation marks it read for this member (optimistic; one attempt per open, so a
   // rollback after a failure cannot loop).
@@ -146,7 +145,7 @@ export function ConversationPane({
 
   // The history is its own scroll area: open at the newest message, and follow new ones unless the
   // reader has scrolled up to read earlier messages.
-  const entryCount = timelineMessages.length + (aiRunning ? 1 : 0);
+  const entryCount = timelineMessages.length;
   const firstScroll = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
@@ -288,15 +287,25 @@ export function ConversationPane({
             names={names}
             onRetry={(clientId) => void outbox.retry(clientId)}
             onDiscard={outbox.discard}
-            aiPending={aiRunning}
           />
         )}
       </div>
 
       {can.send ? (
         <div className="border-border flex shrink-0 flex-col gap-2 border-t p-2 md:gap-3 md:p-3">
-          <AskAiButton conversationId={conversationId} disabled={resolved} />
-          <MessageComposer resolved={resolved} onSend={(input) => void outbox.send(input)} />
+          <AskAiButton
+            conversationId={conversationId}
+            disabled={resolved}
+            onDraft={(draft) => setAiDraft({ ...draft, id: ++draftCounter.current })}
+          />{" "}
+          {/* One compose box. A new AI suggestion re-mounts it pre-filled; the person edits and sends. */}
+          <MessageComposer
+            key={aiDraft?.id ?? "plain"}
+            resolved={resolved}
+            suggestion={aiDraft}
+            onSuggestionClear={() => setAiDraft(null)}
+            onSend={(input) => void outbox.send(input)}
+          />
         </div>
       ) : null}
     </section>

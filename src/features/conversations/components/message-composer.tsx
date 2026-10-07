@@ -1,12 +1,13 @@
 "use client";
 
+import { SparklesIcon, TriangleAlertIcon } from "lucide-react";
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { SendMessageInput } from "../api/types";
+import type { AiDraftResponse, SendMessageInput } from "../api/types";
 import { MAX_MESSAGE_LENGTH } from "../schemas";
 
 type Mode = "reply" | "note" | "customer";
@@ -46,19 +47,31 @@ const PAYLOAD: Record<Mode, Pick<SendMessageInput, "type" | "from">> = {
 export function MessageComposer({
   resolved,
   onSend,
+  suggestion = null,
+  onSuggestionClear,
 }: {
   /** Agent replies are blocked on resolved conversations; notes and customer messages are not. */
   resolved: boolean;
   onSend: (input: SendMessageInput) => void;
+  /**
+   * An AI suggested reply to start from. It is placed IN this single box (editable), like any
+   * draft; nothing is sent until the person sends it. Mount with a new `key` per suggestion so the
+   * box is pre-filled once, then belongs to the person.
+   */
+  suggestion?: AiDraftResponse | null;
+  /** Called when the suggestion is discarded or sent, so the parent can drop it. */
+  onSuggestionClear?: () => void;
 }) {
   const [mode, setMode] = useState<Mode>("reply");
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(suggestion?.draft ?? "");
+  const [suggestionActive, setSuggestionActive] = useState(suggestion !== null);
   const [error, setError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   const current = MODES.find((candidate) => candidate.id === mode)!;
   const blocked = mode === "reply" && resolved;
   const isNote = mode === "note";
+  const showSuggestion = suggestion !== null && suggestionActive && mode === "reply";
 
   function submit(event?: FormEvent) {
     event?.preventDefault();
@@ -70,6 +83,17 @@ export function MessageComposer({
     setError(null);
     onSend({ body, ...PAYLOAD[mode] });
     setBody("");
+    if (suggestionActive) {
+      setSuggestionActive(false);
+      onSuggestionClear?.();
+    }
+  }
+
+  function discardSuggestion() {
+    setBody("");
+    setError(null);
+    setSuggestionActive(false);
+    onSuggestionClear?.();
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -86,7 +110,11 @@ export function MessageComposer({
       noValidate
       className={cn(
         "flex flex-col gap-2 rounded-xl border p-2 md:p-3",
-        isNote ? "border-chart-2 bg-chart-2/10 border-dashed" : "bg-card",
+        isNote
+          ? "border-chart-2 bg-chart-2/10 border-dashed"
+          : showSuggestion
+            ? "border-primary/40 bg-primary/5 border-dashed"
+            : "bg-card",
       )}
     >
       <div role="radiogroup" aria-label="Composer mode" className="flex flex-wrap gap-1">
@@ -112,6 +140,42 @@ export function MessageComposer({
         ))}
       </div>
 
+      {suggestion && showSuggestion ? (
+        <div
+          role="status"
+          aria-label="AI suggested reply"
+          className="flex items-start justify-between gap-2 text-xs"
+        >
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex items-center gap-1.5 font-medium">
+              <SparklesIcon className="size-3.5" aria-hidden="true" />
+              AI suggested reply
+              <span className="text-muted-foreground font-normal">
+                &middot; edit before sending
+              </span>
+            </span>
+            {suggestion.grounded && suggestion.sources.length > 0 ? (
+              <span className="text-muted-foreground">
+                Based on:{" "}
+                <span className="text-foreground font-medium">
+                  {[...new Set(suggestion.sources.map((source) => source.documentTitle))].join(
+                    ", ",
+                  )}
+                </span>
+              </span>
+            ) : suggestion.intent === "CONVERSATIONAL" ? null : (
+              <span className="text-muted-foreground flex items-center gap-1">
+                <TriangleAlertIcon className="size-3.5" aria-hidden="true" />
+                Not based on your knowledge base
+              </span>
+            )}
+          </div>
+          <Button type="button" variant="ghost" size="xs" onClick={discardSuggestion}>
+            Discard
+          </Button>
+        </div>
+      ) : null}
+
       <Label htmlFor="composer-body" className="sr-only">
         {current.label}
       </Label>
@@ -121,7 +185,7 @@ export function MessageComposer({
         onChange={(event) => setBody(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder={current.placeholder}
-        rows={2}
+        rows={suggestionActive ? 4 : 2}
         className="min-h-12 md:min-h-16"
         maxLength={MAX_MESSAGE_LENGTH}
         disabled={blocked}

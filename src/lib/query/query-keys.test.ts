@@ -86,9 +86,9 @@ describe("query keys", () => {
   });
 
   it("builds mutation keys under the conversation they act on", () => {
-    expect(isPrefix(conversationsKeys.item("o", "c1"), mutationKeys.aiReply("o", "c1"))).toBe(true);
-    expect(hashKey(mutationKeys.aiReply("o", "c1"))).not.toBe(
-      hashKey(mutationKeys.aiReply("o", "c2")),
+    expect(isPrefix(conversationsKeys.item("o", "c1"), mutationKeys.aiDraft("o", "c1"))).toBe(true);
+    expect(hashKey(mutationKeys.aiDraft("o", "c1"))).not.toBe(
+      hashKey(mutationKeys.aiDraft("o", "c2")),
     );
   });
 });

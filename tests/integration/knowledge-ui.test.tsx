@@ -1,13 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_EVENTS_PARAMS } from "@/features/conversations/api/types";
+import { MessageComposer } from "@/features/conversations/components/message-composer";
 import { ConversationPane } from "@/features/conversations/components/conversation-pane";
 import { KnowledgeListView } from "@/features/knowledge/components/knowledge-list-view";
 import { listDocumentsQuerySchema } from "@/features/knowledge/schemas";
 import { QueryProvider } from "@/lib/query/query-provider";
 import { serialize } from "@/lib/query/serialize";
 import { requireOrganizationContext } from "@/server/auth/context";
-import { generateAiReply } from "@/server/services/ai-reply";
+import { generateAiDraft } from "@/server/services/ai-draft";
 import { listConversationEvents, listMessages } from "@/server/services/conversation-messages";
 import { getConversation } from "@/server/services/conversations";
 import { listDocuments } from "@/server/services/knowledge";
@@ -62,7 +63,7 @@ describeDb("knowledge and AI UI server rendering", () => {
     expect(html).toContain("admina");
   });
 
-  it("renders an AI reply in the conversation as 'AI Agent' with its real source document", async () => {
+  it("renders an AI draft as a suggestion in the compose box with its real source, not as a conversation message", async () => {
     as(t.adminA);
     const adminCtx = await requireOrganizationContext();
     await createPublishedDocument(adminCtx, REFUND_DOC);
@@ -74,15 +75,27 @@ describeDb("knowledge and AI UI server rendering", () => {
 
     as(t.memberA);
     const ctx = await requireOrganizationContext();
-    await generateAiReply(ctx, conversation.id);
+    const draft = await generateAiDraft(ctx, conversation.id);
 
+    const html = renderToStaticMarkup(
+      <MessageComposer resolved={false} onSend={() => {}} suggestion={{ ...draft }} />,
+    );
+    expect(html).toContain("AI suggested reply");
+    expect(html).toContain("Based on:");
+    expect(html).toContain("Refund policy");
+    expect(html).toContain("Send reply");
+    expect(html).toContain(draft.draft.slice(0, 30));
+    expect(html).toContain("Discard");
+    expect(html).not.toContain('aria-label="AI message"');
+
+    // The conversation history itself contains no AI message.
     const initial = serialize({
       conversation: { conversation: await getConversation(ctx, conversation.id) },
       messages: await listMessages(ctx, conversation.id, { limit: 50, includeInternal: true }),
       events: await listConversationEvents(ctx, conversation.id, DEFAULT_EVENTS_PARAMS),
       members: { members: await listMembers(ctx) },
     });
-    const html = renderToStaticMarkup(
+    const pane = renderToStaticMarkup(
       <QueryProvider organizationId={ctx.organization.id}>
         <ConversationPane
           conversationId={conversation.id}
@@ -93,12 +106,8 @@ describeDb("knowledge and AI UI server rendering", () => {
         />
       </QueryProvider>,
     );
-    expect(html).toContain('aria-label="AI message"');
-    expect(html).toContain("AI Agent");
-    expect(html).toContain("Based on:");
-    expect(html).toContain("Refund policy");
-    expect(html).toContain("Ask AI");
-    // Never presented as a human member.
-    expect(html).not.toContain('aria-label="Agent message"');
+    expect(pane).toContain("Ask AI");
+    expect(pane).not.toContain('aria-label="AI message"');
+    expect(pane).not.toContain("AI suggested reply");
   });
 });
