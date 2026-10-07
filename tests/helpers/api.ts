@@ -8,14 +8,18 @@ export async function call(
     body?: unknown;
     rawBody?: string;
     params?: Record<string, string>;
+    query?: Record<string, string>;
   } = {},
 ) {
-  const { method = "GET", body, rawBody, params = {} } = options;
-  const request = new Request("http://localhost/api/test", {
-    method,
-    headers: { "content-type": "application/json" },
-    body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
-  });
+  const { method = "GET", body, rawBody, params = {}, query } = options;
+  const request = new Request(
+    `http://localhost/api/test${query ? `?${new URLSearchParams(query)}` : ""}`,
+    {
+      method,
+      headers: { "content-type": "application/json" },
+      body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
+    },
+  );
   const response = await (handler as Handler)(request, {
     params: Promise.resolve(params) as Promise<never>,
   });

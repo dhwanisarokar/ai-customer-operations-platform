@@ -1,7 +1,5 @@
-import { SignOutButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { CreateOrganizationForm } from "@/features/organizations/components/create-organization-form";
 import { OrganizationSwitcher } from "@/features/organizations/components/organization-switcher";
 import { requireUser, resolveOrganizationContext } from "@/server/auth/context";
@@ -22,12 +20,7 @@ export default async function DashboardPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-10">
-      <header className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <SignOutButton redirectUrl="/">
-          <Button variant="outline">Sign out</Button>
-        </SignOutButton>
-      </header>
+      <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
 
       <Card>
         <CardHeader>

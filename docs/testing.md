@@ -34,3 +34,19 @@ database you care about. CI runs them against a Postgres service container.
 ## Not yet covered
 
 Real Clerk sessions and the sign-in/sign-up UI (needs Clerk test credentials) and Playwright E2E.
+
+## Customer suites (Phase 2)
+
+All run against real PostgreSQL via the route handlers, services and repositories; only the Clerk
+session and cookie are doubled (`tests/helpers/mocks.ts`, fixtures in `tests/helpers/tenants.ts`).
+
+| File                                       | Covers                                                                                                                                                               |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `integration/customers.test.ts`            | Create/read/update/archive, normalization, tenant-aware duplicates, validation 400s, transaction rollback, activities, RBAC, restore.                                |
+| `integration/customers-isolation.test.ts`  | Cross-tenant read/update/archive/activities/notes/tags (404, no side effects), foreign tag assignment, organizationId tampering, forged active org, multi-org users. |
+| `integration/customers-query.test.ts`      | Pagination (no overlap, ties), search (fields, phone digits, tokens, wildcards), filters, sorting, archived handling.                                                |
+| `integration/customer-tags-notes.test.ts`  | Tag catalogue and assignment, duplicate handling, notes, timeline ordering, `lastActivityAt`/`updatedAt` semantics, Customer 360 shape.                              |
+| `integration/customer-constraints.test.ts` | Unique indexes, composite FKs (cross-tenant inserts rejected by the database), CHECK constraints, cascades.                                                          |
+| `src/features/customers/*.test.*`          | Normalization, Zod schemas, list URL helpers (unit); timeline and form behaviour (React Testing Library, jsdom).                                                     |
+
+Not covered: the server-rendered customer pages (they need a Clerk session) and Playwright E2E.

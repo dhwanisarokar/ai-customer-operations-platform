@@ -23,6 +23,7 @@ model User {
   updatedAt      DateTime @updatedAt
 
   memberships Membership[]
+  notes       CustomerNote[]
 
   @@map("users")
 }
@@ -36,7 +37,12 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships Membership[]
+  memberships  Membership[]
+  customers    Customer[]
+  tags         Tag[]
+  activities   CustomerActivity[]
+  notes        CustomerNote[]
+  customerTags CustomerTag[]
 
   @@map("organizations")
 }
@@ -58,4 +64,143 @@ model Membership {
   // "List an organization's members" (leading column organizationId), optionally by role.
   @@index([organizationId, role])
   @@map("memberships")
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum ActivityType {
+  CUSTOMER_CREATED
+  CUSTOMER_UPDATED
+  CUSTOMER_ARCHIVED
+  TAG_ADDED
+  TAG_REMOVED
+  NOTE_ADDED
+}
+
+enum ActivityActorType {
+  USER
+  SYSTEM
+  AI
+}
+
+// Tenant-owned. Child tables reference (id, organizationId) with composite foreign keys, so the
+// database itself guarantees that a note/activity/tag link can never cross organizations.
+model Customer {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @db.Uuid
+  externalId     String?
+  firstName      String
+  lastName       String?
+  // Lowercased and trimmed by the application. NULL when unknown (NULLs never collide).
+  email          String?
+  // Normalized by the application: optional leading "+" followed by digits only.
+  phone          String?
+  company        String?
+  jobTitle       String?
+  status         CustomerStatus @default(ACTIVE)
+  source         String?
+  metadata       Json?
+  // Denormalized timestamp of the newest activity; maintained in the same transaction as the
+  // activity insert. Lets the list show/sort "last activity" without joining the timeline.
+  lastActivityAt DateTime       @default(now())
+  createdAt      DateTime       @default(now())
+  // Set explicitly on profile edits (not @updatedAt) so activity bookkeeping such as lastActivityAt
+  // never counts as a profile modification.
+  updatedAt      DateTime       @default(now())
+  archivedAt     DateTime?
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tags         CustomerTag[]
+  activities   CustomerActivity[]
+  notes        CustomerNote[]
+
+  // Business rules are tenant-aware: the same email/externalId may exist in different organizations.
+  @@unique([organizationId, email])
+  @@unique([organizationId, externalId])
+  // Target of composite foreign keys from child tables.
+  @@unique([id, organizationId])
+  @@index([organizationId, status, createdAt(sort: Desc)])
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([organizationId, updatedAt(sort: Desc)])
+  @@index([organizationId, lastActivityAt(sort: Desc)])
+  @@index([organizationId, firstName, lastName])
+  @@map("customers")
+}
+
+model Tag {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  name           String
+  // Lowercased name; makes uniqueness case-insensitive ("VIP" == "vip") with a plain constraint.
+  normalizedName String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customers    CustomerTag[]
+
+  @@unique([organizationId, normalizedName])
+  @@unique([id, organizationId])
+  @@map("tags")
+}
+
+model CustomerTag {
+  customerId     String   @db.Uuid
+  tagId          String   @db.Uuid
+  organizationId String   @db.Uuid
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  tag          Tag          @relation(fields: [tagId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  // Duplicate links are impossible; the composite FKs make cross-tenant links impossible.
+  @@id([customerId, tagId])
+  // "Customers with tag X" (filtering) within an organization.
+  @@index([organizationId, tagId])
+  @@map("customer_tags")
+}
+
+model CustomerActivity {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @db.Uuid
+  customerId     String            @db.Uuid
+  type           ActivityType
+  title          String
+  description    String?
+  metadata       Json?
+  actorType      ActivityActorType @default(USER)
+  // User id for USER actors; null for SYSTEM. Deliberately not a foreign key: future actors
+  // (AI agents, workflows) are not users, and history must outlive user deletion.
+  actorId        String?
+  createdAt      DateTime          @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  // Timeline: newest-first activities of one customer.
+  @@index([organizationId, customerId, createdAt(sort: Desc)])
+  @@map("customer_activities")
+}
+
+model CustomerNote {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  customerId     String   @db.Uuid
+  // Nullable so notes survive deletion of their author.
+  authorId       String?  @db.Uuid
+  content        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  author       User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, customerId, createdAt(sort: Desc)])
+  @@map("customer_notes")
 }

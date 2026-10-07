@@ -20,6 +20,31 @@ describe("role permissions", () => {
   });
 });
 
+describe("customer permissions", () => {
+  const memberCan = [
+    "view_customers",
+    "create_customers",
+    "update_customers",
+    "add_customer_notes",
+    "tag_customers",
+  ] as const;
+  const adminOnly = ["archive_customers", "manage_tags"] as const;
+
+  it("lets every role do day-to-day customer work", () => {
+    for (const role of [Role.MEMBER, Role.ADMIN, Role.OWNER]) {
+      for (const permission of memberCan) expect(hasPermission(role, permission)).toBe(true);
+    }
+  });
+
+  it("reserves archiving customers and managing shared tags for ADMIN and OWNER", () => {
+    for (const permission of adminOnly) {
+      expect(hasPermission(Role.MEMBER, permission)).toBe(false);
+      expect(hasPermission(Role.ADMIN, permission)).toBe(true);
+      expect(hasPermission(Role.OWNER, permission)).toBe(true);
+    }
+  });
+});
+
 describe("role hierarchy", () => {
   it("only lets a role act on strictly lower roles", () => {
     expect(outranks(Role.OWNER, Role.ADMIN)).toBe(true);

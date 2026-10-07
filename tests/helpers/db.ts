@@ -16,7 +16,10 @@ if (TEST_DATABASE_URL) {
 
 export async function resetDatabase() {
   const { getDb } = await import("@/db/client");
-  await getDb().$executeRawUnsafe(`TRUNCATE TABLE "memberships", "organizations", "users" CASCADE`);
+  // Truncating the roots cascades to every tenant-owned table.
+  await getDb().$executeRawUnsafe(
+    `TRUNCATE TABLE "organizations", "users" RESTART IDENTITY CASCADE`,
+  );
 }
 
 export async function disconnectDatabase() {

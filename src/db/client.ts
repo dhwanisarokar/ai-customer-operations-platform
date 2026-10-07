@@ -1,5 +1,5 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
+import { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { getServerEnv } from "@/lib/env";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
@@ -13,4 +13,12 @@ function createClient(): PrismaClient {
 export function getDb(): PrismaClient {
   globalForPrisma.prisma ??= createClient();
   return globalForPrisma.prisma;
+}
+
+/** Either the shared client or an interactive-transaction client; repositories accept both. */
+export type Db = PrismaClient | Prisma.TransactionClient;
+
+/** Runs `work` in a single database transaction; any thrown error rolls everything back. */
+export function transaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return getDb().$transaction(work);
 }

@@ -61,3 +61,15 @@ context, never from request input. Future tenant-owned tables must follow the sa
 - `tests/integration/members.test.ts`: MEMBER/ADMIN/OWNER behaviour, duplicate membership, ownership
   transfer including a concurrent race.
 - `tests/integration/constraints.test.ts`: database-level constraints.
+
+## Customer permissions
+
+| Permission                                                                    | OWNER | ADMIN | MEMBER |
+| ----------------------------------------------------------------------------- | :---: | :---: | :----: |
+| `view_customers`                                                              |   x   |   x   |   x    |
+| `create_customers`, `update_customers`, `add_customer_notes`, `tag_customers` |   x   |   x   |   x    |
+| `archive_customers`, `manage_tags`                                            |   x   |   x   |        |
+
+Customer, tag, note and activity routes have no organization id in the URL: they use
+`requireOrganizationContext()` with no argument, which resolves the caller's active organization
+from their verified memberships. See [customer management](customer-management.md).

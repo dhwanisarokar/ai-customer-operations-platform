@@ -48,3 +48,23 @@ npm run db:deploy    # CI/prod: apply committed migrations
 
 The `vector` extension will be enabled by a migration (`CREATE EXTENSION vector`) when the knowledge
 base is built.
+
+## Customer tables (Phase 2)
+
+| Table                 | Notes                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `customers`           | Tenant-owned. `UNIQUE (organizationId, email)` and `(organizationId, externalId)`; `UNIQUE (id, organizationId)`; status enum. |
+| `tags`                | `UNIQUE (organizationId, normalizedName)` (case-insensitive names); `UNIQUE (id, organizationId)`.                             |
+| `customer_tags`       | PK `(customerId, tagId)`; composite FKs to customers and tags on `organizationId`, so cross-tenant links are impossible.       |
+| `customer_activities` | Timeline. Composite FK to customers; `actorId` is intentionally not a FK. Enums `ActivityType`, `ActivityActorType`.           |
+| `customer_notes`      | Composite FK to customers; `authorId` FK to users with `ON DELETE SET NULL`.                                                   |
+
+Rules and the full index rationale are in [customer management](customer-management.md). The
+tenant-consistency pattern is [ADR 005](decisions/005-composite-foreign-keys-for-tenant-consistency.md).
+
+`20261007064200_customer_check_constraints` is hand-written (Prisma cannot express CHECK
+constraints): non-blank names/titles/content, lowercase email, phone format `^\+?[0-9]{5,15}$`,
+and `status = ARCHIVED` if and only if `archivedAt IS NOT NULL`. `tags.normalizedName` is not
+checked against `lower(name)` because PostgreSQL and JavaScript lowercase some non-ASCII text
+differently. `customers.updatedAt` has a default and is set by the application on profile edits
+(not Prisma's `@updatedAt`) so timeline bookkeeping never counts as an edit.

@@ -57,6 +57,14 @@ export async function parseJsonBody<T>(request: Request, schema: ZodType<T>): Pr
   return schema.parse(raw);
 }
 
+/**
+ * Validates URL query parameters. Unknown parameters (including any `organizationId` a client
+ * adds) are ignored: the organization always comes from the authenticated context.
+ */
+export function parseQuery<T>(request: Request, schema: ZodType<T>): T {
+  return schema.parse(Object.fromEntries(new URL(request.url).searchParams));
+}
+
 function formatIssues(error: ZodError) {
   return error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message }));
 }

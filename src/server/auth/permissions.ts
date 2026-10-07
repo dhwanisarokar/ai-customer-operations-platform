@@ -9,12 +9,34 @@ export const PERMISSIONS = [
   "view_members",
   "manage_members",
   "transfer_ownership",
+  "view_customers",
+  "create_customers",
+  "update_customers",
+  "archive_customers",
+  "add_customer_notes",
+  "tag_customers",
+  "manage_tags",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
 
-const MEMBER_PERMISSIONS: readonly Permission[] = ["view_organization", "view_members"];
-const ADMIN_PERMISSIONS: readonly Permission[] = [...MEMBER_PERMISSIONS, "manage_members"];
+// Members do day-to-day customer work. Destructive or organization-wide actions (archiving
+// customers, renaming/deleting shared tags) need an ADMIN.
+const MEMBER_PERMISSIONS: readonly Permission[] = [
+  "view_organization",
+  "view_members",
+  "view_customers",
+  "create_customers",
+  "update_customers",
+  "add_customer_notes",
+  "tag_customers",
+];
+const ADMIN_PERMISSIONS: readonly Permission[] = [
+  ...MEMBER_PERMISSIONS,
+  "manage_members",
+  "archive_customers",
+  "manage_tags",
+];
 const OWNER_PERMISSIONS: readonly Permission[] = [
   ...ADMIN_PERMISSIONS,
   "manage_organization",
