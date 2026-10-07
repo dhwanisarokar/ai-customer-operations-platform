@@ -54,7 +54,7 @@ export function ConversationList({ conversations, selectedId, hrefFor }: Props) 
               <p className="truncate text-sm">{conversation.subject}</p>
               <p className="text-muted-foreground truncate text-xs">
                 {conversation.lastMessagePreview
-                  ? `${conversation.lastMessageSenderType === "CUSTOMER" ? "" : "You: "}${conversation.lastMessagePreview}`
+                  ? `${previewPrefix(conversation.lastMessageSenderType)}${conversation.lastMessagePreview}`
                   : "No messages yet"}
               </p>
               <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
@@ -72,4 +72,9 @@ export function ConversationList({ conversations, selectedId, hrefFor }: Props) 
       })}
     </ul>
   );
+}
+
+function previewPrefix(sender: ConversationDto["lastMessageSenderType"]): string {
+  if (sender === "CUSTOMER" || sender === null) return "";
+  return sender === "AI_AGENT" ? "AI: " : "You: ";
 }

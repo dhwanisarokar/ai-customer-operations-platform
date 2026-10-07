@@ -86,3 +86,17 @@ assignment (a rule inside the assignment service, not a separate permission). Re
 and priority changes are open to members because they are routine inbox work; there is no
 `manage_conversations` permission until something needs one. Conversation routes use
 `requireOrganizationContext()` with no argument, like customers. Details: [conversations](conversations.md).
+
+## Knowledge and AI permissions
+
+| Permission                                                                   | OWNER | ADMIN | MEMBER |
+| ---------------------------------------------------------------------------- | :---: | :---: | :----: |
+| `view_knowledge`                                                             |   x   |   x   |   x    |
+| `edit_knowledge` (create documents, edit drafts)                             |   x   |   x   |   x    |
+| `publish_knowledge` (publish, unpublish, archive, delete, edit live content) |   x   |   x   |        |
+
+Rationale: everything that changes what the AI tells customers needs an ADMIN. Generating an AI
+reply uses `send_messages` (it stores a message in the conversation); no separate AI permission
+exists yet. The AI itself holds no permissions: it has no tools, and authorization is always
+deterministic application code. Details: [knowledge-base.md](knowledge-base.md),
+[ai-agent.md](ai-agent.md).

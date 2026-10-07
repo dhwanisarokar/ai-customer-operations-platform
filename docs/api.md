@@ -240,3 +240,68 @@ Marks the conversation read for the calling member only. `204`. Errors: 401, 404
 
 `GET /api/customers/:customerId` now also returns `conversations` (latest 5, conversation objects,
 only for members with `view_conversations`) and `counts.conversations`.
+
+## Knowledge base
+
+Acts in the caller's active organization (no organization id in URLs; `organizationId` and other
+server-owned fields are rejected in bodies and ignored in query strings; another organization's
+document is a `404`). Embeddings are never returned. Behaviour and rules:
+[knowledge-base.md](knowledge-base.md).
+
+Document list item: `{ id, title, description, status, contentVersion, publishedAt, createdAt,
+updatedAt, createdBy: {id, name, email} | null, chunkCount }`. Detail adds `content` and `updatedBy`.
+
+### `GET /api/knowledge` (view_knowledge: any member)
+
+Query: `page`, `pageSize` (1-100), `q` (title, description or content), `status` (comma list of
+DRAFT, PUBLISHED, ARCHIVED), `sort` (`updatedAt` | `createdAt` | `title`), `order`. `200` paginated
+`{ items, page, pageSize, total, totalPages }`. Errors: 400, 401.
+
+### `POST /api/knowledge` (edit_knowledge: any member)
+
+Body (strict): `title` (1-200), `description` (optional, <= 500), `content` (1-100,000 chars).
+Creates a DRAFT; no embedding happens. `201 { document }`. Errors: 400, 401, 403.
+
+### `GET /api/knowledge/:documentId` (view_knowledge)
+
+`200 { document }` including `content`. Errors: 401, 404.
+
+### `PATCH /api/knowledge/:documentId` (edit_knowledge for drafts; publish_knowledge for published/archived)
+
+Body (strict, at least one): `title`, `description`, `content`. For a PUBLISHED document a title or
+content change is re-chunked and re-embedded first, then content and chunks are swapped in one
+transaction (the old chunks are never used again). `200 { document }`.
+Errors: 400, 401, 403, 404, 409 (edited concurrently), 502/504 (embedding failed: nothing changed).
+
+### `POST /api/knowledge/:documentId/publish` (publish_knowledge: ADMIN, OWNER)
+
+Chunks and embeds the document, then publishes it. Idempotent. `200 { document }`.
+Errors: 401, 403, 404, 409 (archived; or concurrently edited), 502/504 (embedding failed: stays a draft).
+
+### `POST /api/knowledge/:documentId/unpublish` (publish_knowledge)
+
+Back to DRAFT (also restores an ARCHIVED document); embeddings are deleted. `200 { document }`.
+
+### `POST /api/knowledge/:documentId/archive` (publish_knowledge)
+
+Sets ARCHIVED and deletes embeddings. `200 { document }`.
+
+### `DELETE /api/knowledge/:documentId` (publish_knowledge)
+
+Permanently deletes the document and its chunks. `204`. Errors: 401, 403, 404.
+
+## AI reply
+
+### `POST /api/conversations/:conversationId/ai-reply` (send_messages: any member)
+
+No parameters (empty body or `{}`; anything else is `400`). Retrieves this organization's published
+knowledge, asks the AI agent for a grounded reply and stores it as an `AI_AGENT` message.
+`201 { message }` where message is `{ id, senderType: "AI_AGENT", senderUserId: null, messageType,
+body, createdAt, sender: null, ai: { provider, model, grounded, sources: [{documentId,
+documentTitle, chunkId, chunkIndex}] } }`. The same `ai` field appears on AI messages in
+`GET .../messages`. Details: [ai-agent.md](ai-agent.md).
+
+Errors: 400, 401, 404, 409 (resolved; no customer message to answer; another AI reply in flight),
+500 (storing failed; nothing was stored), 502 `ai_unavailable` / `ai_invalid_response` /
+`ai_embedding_failed`, 503 `ai_not_configured`, 504 `ai_timeout`. Provider details are never in
+the response. Nothing is stored on any error.

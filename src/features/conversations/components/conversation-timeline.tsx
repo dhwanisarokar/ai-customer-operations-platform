@@ -9,6 +9,11 @@ export type TimelineMessage = {
   body: string;
   createdAt: Date | string;
   sender: { id: string; name: string | null; email: string } | null;
+  /** Present for AI_AGENT messages: how the reply was produced (no prompts or secrets). */
+  ai?: {
+    grounded: boolean;
+    sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
+  } | null;
 };
 
 export type TimelineSystemEvent = TimelineEvent & { id: string; createdAt: Date | string };
@@ -88,20 +93,32 @@ export function ConversationTimeline({
 function MessageBubble({ message }: { message: TimelineMessage }) {
   const isNote = message.messageType === "INTERNAL_NOTE";
   const fromCustomer = message.senderType === "CUSTOMER";
+  const fromAi = message.senderType === "AI_AGENT";
   const author = fromCustomer
     ? "Customer"
-    : message.senderType === "SYSTEM"
-      ? "System"
-      : (message.sender?.name ?? message.sender?.email ?? "Former member");
+    : fromAi
+      ? "AI Agent"
+      : message.senderType === "SYSTEM"
+        ? "System"
+        : (message.sender?.name ?? message.sender?.email ?? "Former member");
 
   return (
     <article
-      aria-label={isNote ? "Internal note" : fromCustomer ? "Customer message" : "Agent message"}
+      aria-label={
+        isNote
+          ? "Internal note"
+          : fromCustomer
+            ? "Customer message"
+            : fromAi
+              ? "AI message"
+              : "Agent message"
+      }
       className={cn(
         "flex max-w-[85%] flex-col gap-1 rounded-xl border px-3 py-2",
         isNote && "border-chart-2 bg-chart-2/10 self-center border-dashed",
         !isNote && fromCustomer && "bg-muted self-start",
-        !isNote && !fromCustomer && "bg-accent self-end",
+        !isNote && !fromCustomer && !fromAi && "bg-accent self-end",
+        fromAi && "border-primary/40 bg-primary/5 self-end",
       )}
     >
       <header className="text-muted-foreground flex items-center gap-2 text-xs">
@@ -113,6 +130,24 @@ function MessageBubble({ message }: { message: TimelineMessage }) {
       </header>
       <p className="text-sm break-words whitespace-pre-wrap">{message.body}</p>
       {isNote ? <p className="text-muted-foreground text-xs">Only visible to your team.</p> : null}
+      {fromAi ? <AiSources ai={message.ai ?? null} /> : null}
     </article>
+  );
+}
+
+/** Only shows sources the retrieval actually returned and the model cited. Nothing is invented. */
+function AiSources({ ai }: { ai: TimelineMessage["ai"] }) {
+  if (!ai || !ai.grounded || ai.sources.length === 0) {
+    return (
+      <p className="text-muted-foreground text-xs">
+        Not based on your knowledge base. Review before sending anything to the customer.
+      </p>
+    );
+  }
+  const titles = [...new Set(ai.sources.map((source) => source.documentTitle))];
+  return (
+    <p className="text-muted-foreground text-xs">
+      Based on: <span className="text-foreground font-medium">{titles.join(", ")}</span>
+    </p>
   );
 }

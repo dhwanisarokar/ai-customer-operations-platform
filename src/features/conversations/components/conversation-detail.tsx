@@ -7,6 +7,7 @@ import { NotFoundError } from "@/server/errors";
 import { getConversationTimeline } from "@/server/services/conversation-messages";
 import { getConversation } from "@/server/services/conversations";
 import { listMembers } from "@/server/services/memberships";
+import { AskAiButton } from "./ask-ai-button";
 import { ConversationPriorityBadge, ConversationStatusBadge } from "./conversation-badges";
 import { ConversationControls } from "./conversation-controls";
 import { ConversationTimeline } from "./conversation-timeline";
@@ -118,7 +119,11 @@ export async function ConversationDetail({
       </div>
 
       {ctx.can("send_messages") ? (
-        <div className="border-border border-t p-3">
+        <div className="border-border flex flex-col gap-3 border-t p-3">
+          <AskAiButton
+            conversationId={conversation.id}
+            disabled={conversation.status === "RESOLVED"}
+          />
           <MessageComposer
             conversationId={conversation.id}
             resolved={conversation.status === "RESOLVED"}

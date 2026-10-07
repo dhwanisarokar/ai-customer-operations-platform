@@ -12,6 +12,7 @@ src/
 ├── lib/            Small, single-purpose modules (env, logger). No grab-bag utils file.
 └── server/
     ├── auth/       Clerk adapter (identity.ts), tenant context, permissions.
+    ├── ai/         Provider interface, Gemini adapter, embeddings, config, the support agent.
     ├── http/       API handler wrapper (error mapping, JSON parsing), param helpers.
     ├── repositories/  Prisma queries; org-scoped functions take an explicit organizationId.
     └── services/   Application logic and authorization rules.
@@ -33,4 +34,7 @@ src/
 - Customers: [customer management](customer-management.md). Conversations and the inbox:
   [conversations](conversations.md). Each feature follows the same route -> service -> repository
   layering with an explicit organization on every query.
+- Knowledge base, RAG and the AI agent: [knowledge-base](knowledge-base.md), [rag](rag.md),
+  [ai-agent](ai-agent.md). All AI access goes through `src/server/ai` (a provider interface with one
+  Gemini implementation); services and routes never import the SDK.
 - `GET /api/health` — returns 200 `{status:"ok"}` or 503 `{status:"degraded"}` depending on DB reachability.

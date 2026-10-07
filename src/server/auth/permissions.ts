@@ -21,6 +21,9 @@ export const PERMISSIONS = [
   "update_conversations",
   "send_messages",
   "assign_conversations",
+  "view_knowledge",
+  "edit_knowledge",
+  "publish_knowledge",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -41,6 +44,10 @@ const MEMBER_PERMISSIONS: readonly Permission[] = [
   "create_conversations",
   "update_conversations",
   "send_messages",
+  // Knowledge: members read it and write drafts. Anything that changes what the AI tells customers
+  // (publish, unpublish, archive, delete, editing live content) needs an ADMIN.
+  "view_knowledge",
+  "edit_knowledge",
 ];
 const ADMIN_PERMISSIONS: readonly Permission[] = [
   ...MEMBER_PERMISSIONS,
@@ -48,6 +55,7 @@ const ADMIN_PERMISSIONS: readonly Permission[] = [
   "archive_customers",
   "manage_tags",
   "assign_conversations",
+  "publish_knowledge",
 ];
 const OWNER_PERMISSIONS: readonly Permission[] = [
   ...ADMIN_PERMISSIONS,

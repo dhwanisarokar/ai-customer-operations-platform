@@ -78,3 +78,33 @@ would only test the sign-in page. This is deferred, and the flow is covered laye
 
 `tests/helpers/db.ts` refuses to run against a database whose name does not contain "test", because
 the helpers `TRUNCATE` tables. Never point `TEST_DATABASE_URL` at a development or hosted database.
+
+## Knowledge base and AI suites (Phase 4)
+
+**Gemini is never called by automated tests.** `tests/helpers/ai.ts` provides a deterministic fake
+`AIProvider`: hash-based bag-of-words embeddings (texts sharing meaningful words are similar), a
+scripted/default model that answers from the first retrieved source, call recording, injectable
+failures (provider error, invalid embedding size, count mismatch, delays) and configurable token
+usage. The vitest config sets `GEMINI_API_KEY` to empty, so a key in your shell cannot leak into a
+test, and lowers `RAG_MIN_SIMILARITY` to suit the fake embeddings. Everything else (services,
+repositories, Prisma, **real PostgreSQL with pgvector**) runs for real.
+
+pgvector is required for the integration tests: the CI service container is `pgvector/pgvector`,
+and locally use a PostgreSQL that has the extension (the migration runs `CREATE EXTENSION vector`).
+
+| File                                        | Covers                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `integration/knowledge.test.ts`             | CRUD, validation, list/search/filter/sort/pagination, publish/unpublish/archive/delete, chunk + 768-dim embedding creation, stale-chunk invalidation on edit, failed embedding leaves consistent state, concurrent edit (409), RBAC, tenant isolation.          |
+| `integration/knowledge-search.test.ts`      | Similarity ordering and scores, threshold, limit, published-only, stale-version exclusion, cross-organization isolation, no embeddings exposed.                                                                                                                 |
+| `integration/knowledge-constraints.test.ts` | Composite FK (cross-tenant chunk rejected), vector dimension enforced by PostgreSQL, CHECK constraints, cascades.                                                                                                                                               |
+| `integration/ai-reply.test.ts`              | Grounded reply stored as `AI_AGENT` with sources/metadata/usage, uncertainty without knowledge, context contents and bounds, internal notes excluded, tenant isolation, preconditions, every failure mode, rollback, concurrency, prompt-injection regressions. |
+| `integration/knowledge-ui.test.tsx`         | Server-renders the knowledge table and the AI message ("AI Agent", "Based on: ...") from real data.                                                                                                                                                             |
+| `src/server/ai/**/*.test.ts`                | Provider (SDK mocked): generation, usage mapping, errors, timeouts, empty/blocked output, embedding batching/format/dimensions; config; embedding validation; prompts and sanitization; context bounds; the agent pipeline with injection cases.                |
+| `src/features/knowledge/*.test.*`           | Chunking (determinism, overlap, limits), schemas, list params, form and action components.                                                                                                                                                                      |
+
+### Real Gemini smoke test (manual)
+
+`npm run ai:smoke` makes exactly 3 real requests (embed 2 documents, embed 1 query, generate 1
+structured reply) with the key from `.env`, prints scores/latency/usage and never the key. It is
+not part of `npm test` or CI. During development it also uncovered the batching pitfall described
+in [rag.md](rag.md).

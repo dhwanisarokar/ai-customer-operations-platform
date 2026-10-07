@@ -156,7 +156,11 @@ Not indexed: free-text search (substring `ILIKE` bounded by the org index; add `
 grows large), and `subject`/`createdAt` sorts beyond the org prefix. Indexes follow the query
 patterns above and have not been load-tested.
 
-## Future AI-agent compatibility
+## AI-agent compatibility (implemented in Phase 4)
+
+The design below held up: AI replies are ordinary `Message` rows with `senderType = AI_AGENT` and
+provenance in `messages.metadata`, their events use actor type `AI`, and no change to
+`conversations` was needed. See [ai-agent.md](ai-agent.md). The original reasoning:
 
 Nothing here needs to change shape for an AI participant:
 

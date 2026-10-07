@@ -22,9 +22,11 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  memberships Membership[]
-  notes       CustomerNote[]
-  messages    Message[]
+  memberships               Membership[]
+  notes                     CustomerNote[]
+  messages                  Message[]
+  createdKnowledgeDocuments KnowledgeDocument[] @relation("KnowledgeCreatedBy")
+  updatedKnowledgeDocuments KnowledgeDocument[] @relation("KnowledgeUpdatedBy")
 
   @@map("users")
 }
@@ -48,6 +50,8 @@ model Organization {
   messages           Message[]
   conversationEvents ConversationEvent[]
   readStates         ConversationReadState[]
+  knowledgeDocuments KnowledgeDocument[]
+  knowledgeChunks    KnowledgeDocumentChunk[]
 
   @@map("organizations")
 }
@@ -312,6 +316,9 @@ model Message {
   senderUserId   String?           @db.Uuid
   messageType    MessageType       @default(MESSAGE)
   body           String
+  // AI messages: provider, model, prompt version, sources, usage (see docs/ai-agent.md). Never
+  // contains prompts, API keys or other secrets. NULL for human and customer messages.
+  metadata       Json?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @default(now())
 
@@ -357,4 +364,67 @@ model ConversationReadState {
 
   @@id([conversationId, userId])
   @@map("conversation_read_states")
+}
+
+enum KnowledgeDocumentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// Tenant-owned knowledge article. Only PUBLISHED documents are searchable by the AI.
+model KnowledgeDocument {
+  id              String                  @id @default(uuid()) @db.Uuid
+  organizationId  String                  @db.Uuid
+  title           String
+  description     String?
+  content         String
+  status          KnowledgeDocumentStatus @default(DRAFT)
+  // Incremented whenever title/content change. Chunks record the version they were built from, so
+  // a chunk that does not match its document's version can never be retrieved.
+  contentVersion  Int                     @default(1)
+  publishedAt     DateTime?
+  createdByUserId String?                 @db.Uuid
+  updatedByUserId String?                 @db.Uuid
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @default(now())
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?                    @relation("KnowledgeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy    User?                    @relation("KnowledgeUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  chunks       KnowledgeDocumentChunk[]
+
+  @@unique([id, organizationId])
+  // Knowledge list: status filter, most recently updated first.
+  @@index([organizationId, status, updatedAt(sort: Desc)])
+  // Knowledge list without a status filter.
+  @@index([organizationId, updatedAt(sort: Desc)])
+  @@map("knowledge_documents")
+}
+
+// One embedded slice of a document. The embedding column is a pgvector vector(768); Prisma cannot
+// read or write it, so chunks are written and searched with reviewed raw SQL
+// (src/server/repositories/knowledge-chunks.ts). The composite foreign key keeps a chunk in the
+// same organization as its document.
+model KnowledgeDocumentChunk {
+  id              String                     @id @default(uuid()) @db.Uuid
+  organizationId  String                     @db.Uuid
+  documentId      String                     @db.Uuid
+  chunkIndex      Int
+  content         String
+  // Estimated from character count (about 4 characters per token); not a tokenizer result.
+  estimatedTokens Int
+  contentVersion  Int
+  embedding       Unsupported("vector(768)")
+  createdAt       DateTime                   @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document     KnowledgeDocument @relation(fields: [documentId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  // Stable ordering and "replace all chunks of a document".
+  @@unique([documentId, chunkIndex])
+  // Tenant scan for vector search (exact search over one organization's chunks) and per-document
+  // deletes. See docs/rag.md for why there is deliberately no ANN (HNSW/IVFFlat) index yet.
+  @@index([organizationId, documentId])
+  @@map("knowledge_document_chunks")
 }

@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/dashboard", label: "Overview", exact: true },
   { href: "/dashboard/inbox", label: "Inbox", exact: false },
   { href: "/dashboard/customers", label: "Customers", exact: false },
+  { href: "/dashboard/knowledge", label: "Knowledge", exact: false },
 ] as const;
 
 export function DashboardNav() {

@@ -7,20 +7,65 @@ const messageSelect = {
   senderUserId: true,
   messageType: true,
   body: true,
+  metadata: true,
   createdAt: true,
   sender: { select: { id: true, name: true, email: true } },
 } satisfies Prisma.MessageSelect;
 
-export type MessageRecord = Prisma.MessageGetPayload<{ select: typeof messageSelect }>;
+type MessageRow = Prisma.MessageGetPayload<{ select: typeof messageSelect }>;
+
+/** What clients may learn about how an AI message was produced (no prompts, no usage, no secrets). */
+export type AiMessageInfo = {
+  provider: string;
+  model: string;
+  grounded: boolean;
+  sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
+};
+
+export type MessageRecord = Omit<MessageRow, "metadata"> & { ai: AiMessageInfo | null };
 
 export type NewMessage = {
   senderType: MessageSenderType;
   senderUserId: string | null;
   messageType: MessageType;
   body: string;
+  /** AI messages only: provenance (see src/server/services/ai-reply.ts). */
+  metadata?: Prisma.InputJsonValue;
   /** Lets a service stamp the message and the conversation counters with the same instant. */
   createdAt?: Date;
 };
+
+/** Defensive projection of stored AI metadata into the public shape; null for non-AI messages. */
+export function toAiInfo(senderType: string, metadata: unknown): AiMessageInfo | null {
+  if (senderType !== "AI_AGENT" || typeof metadata !== "object" || metadata === null) return null;
+  const meta = metadata as Record<string, unknown>;
+  const rawSources = Array.isArray(meta.sources) ? meta.sources : [];
+  return {
+    provider: typeof meta.provider === "string" ? meta.provider : "unknown",
+    model: typeof meta.model === "string" ? meta.model : "unknown",
+    grounded: meta.grounded === true,
+    sources: rawSources.flatMap((source) => {
+      const s = source as Record<string, unknown>;
+      return typeof s?.documentId === "string" &&
+        typeof s.documentTitle === "string" &&
+        typeof s.chunkId === "string" &&
+        typeof s.chunkIndex === "number"
+        ? [
+            {
+              documentId: s.documentId,
+              documentTitle: s.documentTitle,
+              chunkId: s.chunkId,
+              chunkIndex: s.chunkIndex,
+            },
+          ]
+        : [];
+    }),
+  };
+}
+
+function toRecord({ metadata, ...row }: MessageRow): MessageRecord {
+  return { ...row, ai: toAiInfo(row.senderType, metadata) };
+}
 
 /**
  * Tenant rule: every function takes `organizationId` and `conversationId`. Customer-facing history
@@ -28,16 +73,17 @@ export type NewMessage = {
  */
 export const conversationMessagesRepository = {
   /** The composite foreign key rejects a conversation that belongs to another organization. */
-  create(
+  async create(
     organizationId: string,
     conversationId: string,
     data: NewMessage,
     db: Db = getDb(),
   ): Promise<MessageRecord> {
-    return db.message.create({
+    const row = await db.message.create({
       data: { ...data, organizationId, conversationId },
       select: messageSelect,
     });
+    return toRecord(row);
   },
 
   /** True when `messageId` exists in this conversation (validates pagination cursors). */
@@ -81,6 +127,6 @@ export const conversationMessagesRepository = {
       db.message.count({ where }),
     ]);
     const hasMore = rows.length > options.limit;
-    return { items: rows.slice(0, options.limit).reverse(), hasMore, total };
+    return { items: rows.slice(0, options.limit).reverse().map(toRecord), hasMore, total };
   },
 };

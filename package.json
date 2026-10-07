@@ -17,11 +17,13 @@
     "db:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "ai:smoke": "tsx scripts/ai-smoke.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
     "@clerk/nextjs": "^7.9.11",
+    "@google/genai": "^2.27.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "class-variance-authority": "^0.7.1",

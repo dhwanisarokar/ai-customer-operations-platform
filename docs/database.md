@@ -95,3 +95,32 @@ search) or on every column; see [conversations](conversations.md#indexes).
 constraints): non-blank subject/body, `closedAt` set exactly when RESOLVED, preview <= 200 chars,
 only USER messages carry `senderUserId`, and customers cannot author internal notes.
 `conversations.updatedAt` and `messages.updatedAt` have defaults and are set by the application.
+
+## Knowledge base tables (Phase 4)
+
+| Table                       | Notes                                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `knowledge_documents`       | Tenant-owned. `status` enum (DRAFT/PUBLISHED/ARCHIVED), `contentVersion` (bumped on title/content change), `UNIQUE (id, organizationId)`.  |
+| `knowledge_document_chunks` | `content`, `estimatedTokens`, `contentVersion`, **`embedding vector(768)`**. Composite FK to documents; `UNIQUE (documentId, chunkIndex)`. |
+| `messages.metadata` (new)   | Nullable JSONB. AI replies store provenance (model, prompt version, sources, usage). Never prompts or secrets.                             |
+
+Migrations: `20261007100627_knowledge_base` (Prisma-generated, plus one hand-added line
+`CREATE EXTENSION IF NOT EXISTS vector;` because Prisma cannot express extensions) and
+`20261007100700_knowledge_check_constraints` (hand-written CHECKs). The vector column is declared
+`Unsupported("vector(768)")` in `schema.prisma`: Prisma cannot read or write it, so chunk writes and
+similarity search are reviewed raw SQL, parameterized and tenant-filtered, isolated in
+`src/server/repositories/knowledge-chunks.ts`. On Supabase the extension may already live in the
+`extensions` schema; `IF NOT EXISTS` then does nothing and the type resolves through the role's
+search_path.
+
+### Indexing decisions
+
+- `knowledge_documents (organizationId, status, updatedAt DESC)` and `(organizationId, updatedAt DESC)`:
+  the knowledge list (with and without a status filter), newest first.
+- `knowledge_document_chunks (organizationId, documentId)`: the tenant slice scanned by vector
+  search, and per-document replace/delete.
+- `UNIQUE (documentId, chunkIndex)`: stable ordering and one row per position.
+- **No HNSW/IVFFlat index on `embedding`, on purpose.** Approximate indexes filter after searching,
+  which can under-return for small tenants in a multi-tenant table. Search is an exact scan of one
+  organization's chunks. See [rag.md](rag.md#why-no-hnswivfflat-index-yet) for when to revisit.
+- Cosine distance (`<=>`) with L2-normalized vectors; 768 dimensions (rationale in [rag.md](rag.md)).
