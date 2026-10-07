@@ -4,19 +4,31 @@ export type OutboxItem<TInput> = {
   /** Client-only identifier. Never sent to the server and never treated as a server id. */
   clientId: string;
   input: TInput;
-  status: "sending" | "failed";
+  /**
+   * "sent": the server accepted it (`serverId` is its real id). The item is kept, not removed, so
+   * the consumer can keep showing the SAME message (now with a "sent" indicator) and match it to the
+   * persisted record by `serverId`. Only used when `confirmedId` is provided.
+   */
+  status: "sending" | "failed" | "sent";
+  serverId?: string;
+  /** When the user pressed send (ms). Display only. */
+  createdAt: number;
   error: string | null;
 };
 
 /**
  * An "outbox" for user-authored content (messages, notes). It shows what the user just submitted
- * immediately, as "sending", then removes it once the server confirms (the real server record then
- * appears from the query cache), or keeps it as "failed" with retry/discard.
+ * immediately as a normal message with a "sending" indicator, marks it "sent" (with the server id)
+ * when the server confirms, or "failed" with retry/discard. The same item (same clientId) goes through
+ * every state, so the UI shows one message throughout.
  *
  * Pending items live here, in component state, NOT in the query cache: the cache only ever holds
  * records the server has accepted, so there are no fake ids or timestamps to reconcile.
  */
-export function useOutbox<TInput>(submit: (input: TInput) => Promise<unknown>): {
+export function useOutbox<TInput, TResult = unknown>(
+  submit: (input: TInput) => Promise<TResult>,
+  confirmedId?: (result: TResult) => string,
+): {
   items: OutboxItem<TInput>[];
   send: (input: TInput) => Promise<boolean>;
   retry: (clientId: string) => Promise<boolean>;
@@ -28,8 +40,16 @@ export function useOutbox<TInput>(submit: (input: TInput) => Promise<unknown>): 
   const run = useCallback(
     async (clientId: string, input: TInput): Promise<boolean> => {
       try {
-        await submit(input);
-        setItems((current) => current.filter((item) => item.clientId !== clientId));
+        const result = await submit(input);
+        setItems((current) =>
+          confirmedId
+            ? current.map((item) =>
+                item.clientId === clientId
+                  ? { ...item, status: "sent", serverId: confirmedId(result) }
+                  : item,
+              )
+            : current.filter((item) => item.clientId !== clientId),
+        );
         return true;
       } catch (error) {
         const message =
@@ -42,13 +62,16 @@ export function useOutbox<TInput>(submit: (input: TInput) => Promise<unknown>): 
         return false;
       }
     },
-    [submit],
+    [submit, confirmedId],
   );
 
   const send = useCallback(
     (input: TInput) => {
       const clientId = `client-${++counter.current}`;
-      setItems((current) => [...current, { clientId, input, status: "sending", error: null }]);
+      setItems((current) => [
+        ...current,
+        { clientId, input, status: "sending", error: null, createdAt: Date.now() },
+      ]);
       return run(clientId, input);
     },
     [run],
@@ -57,7 +80,8 @@ export function useOutbox<TInput>(submit: (input: TInput) => Promise<unknown>): 
   const retry = useCallback(
     (clientId: string) => {
       const target = items.find((item) => item.clientId === clientId);
-      if (!target) return Promise.resolve(false);
+      // Only a failed item can be retried: a second click or a "sent" item must not post again.
+      if (!target || target.status !== "failed") return Promise.resolve(false);
       setItems((current) =>
         current.map((item) =>
           item.clientId === clientId ? { ...item, status: "sending", error: null } : item,

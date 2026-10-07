@@ -40,7 +40,7 @@ const PAYLOAD: Record<Mode, Pick<SendMessageInput, "type" | "from">> = {
 
 /**
  * The composer only collects input. Submitting hands it to the outbox (owned by the conversation
- * pane), which shows the message immediately as "Sending..." in the timeline and handles
+ * pane), which shows the message immediately as a normal bubble with a delivery icon and handles
  * success, failure and retry. The textarea therefore clears at once.
  */
 export function MessageComposer({

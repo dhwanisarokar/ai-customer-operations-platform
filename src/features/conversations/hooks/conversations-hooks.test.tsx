@@ -366,8 +366,14 @@ describe("sending messages (outbox)", () => {
 
     gate.resolve(json(201, { message: message({ id: "m-server", body: "On it!" }) }));
     expect(await sent).toBe(true);
-    await waitFor(() => expect(result.current.items).toEqual([]));
+    // Accepted by the server: the real message is in the cache and the item is reconciled by id.
     expect(messages(client, true)).toEqual(["m0", "m-server"]);
+    await waitFor(() =>
+      expect(result.current.items[0]).toMatchObject({ status: "sent", serverId: "m-server" }),
+    );
+    // Same item, same clientId, throughout: no second entry was created.
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0].clientId).toBe("client-1");
     expect(api.calls[0].body).toEqual({ body: "On it!", type: "MESSAGE", from: "USER" });
   });
 
@@ -396,8 +402,13 @@ describe("sending messages (outbox)", () => {
     await act(async () => {
       await result.current.retry(result.current.items[0].clientId);
     });
-    expect(result.current.items).toEqual([]);
+    expect(result.current.items[0]).toMatchObject({ status: "sent", serverId: "m-ok" });
     expect(messages(client, true)).toEqual(["m0", "m-ok"]);
+    // A sent item can never be retried again, so a retry cannot post the message twice.
+    await act(async () => {
+      expect(await result.current.retry(result.current.items[0].clientId)).toBe(false);
+    });
+    expect(attempts).toBe(2);
   });
 
   it("lets the user discard a failed message", async () => {

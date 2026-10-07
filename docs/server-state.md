@@ -53,11 +53,37 @@ assign/unassign, mark-read; customer tags add/remove; archive customer. Flow: ca
 queries for the keys, snapshot, patch the cache, on error restore the snapshot and show the server's
 message, on settle invalidate. Overlapping mutations on one key only reconcile after the last one.
 
-### Outbox (messages and notes)
+### Outbox and delivery state (messages and notes)
 
-New messages and notes are not inserted into the cache. `useOutbox` keeps pending/failed items in
-component state, rendered as "Sending..." or a failed row with **Retry**/**Discard**. On success the
-item leaves the outbox and the list is invalidated, so the confirmed server row replaces it.
+```text
+TanStack Query cache      -> persisted server messages (real ids)
+Component state (outbox)  -> the user's in-flight messages (clientId, sending | sent | failed)
+ConversationPane          -> merges both into ONE list for the timeline
+```
+
+A message the user sends is rendered immediately as a **normal message bubble** (same component as
+persisted messages) with a small delivery icon next to the time: clock (sending), check (sent),
+warning (failed, with Retry/Discard in the bubble). There is no separate "Sending..." row.
+
+Reconciliation is by **identity, never by text or timestamp**:
+
+1. `useOutbox` gives each item a client-only `clientId`; the same item goes through every state.
+2. On success `useSendMessage.onSuccess` writes the real message into every matching messages cache
+   (idempotent by server id) and the item becomes `sent` with that `serverId`.
+3. The pane renders the persisted message (matched by `serverId`) in place of the temporary entry,
+   keeping the `clientId` as its React key and showing the check icon. An item is rendered as
+   temporary only while no persisted message with its `serverId` exists, so one copy is ever visible,
+   whatever order the cache and component updates land in, including during the follow-up refetch.
+4. Retry re-sends the same failed item (status goes failed -> sending -> sent). Only `failed` items
+   can be retried, so a retry can never post a message that was already accepted.
+
+The follow-up invalidation (`refreshConversation`) is fire-and-forget: it is not returned from
+`onSettled`, otherwise the mutation would stay pending until the refetch finished.
+
+AI generation is separate UI state: "AI Agent is writing a reply..." is derived from
+`useIsMutating(aiReply)` and is never a message. `useAiReply` writes the stored `AI_AGENT` message into
+the cache in `onSuccess`, in the same step the mutation stops being pending, so the indicator and the
+real reply never show together. On failure the indicator disappears and the error shows.
 
 ### Deliberately NOT optimistic
 
@@ -69,6 +95,9 @@ item leaves the outbox and the list is invalidated, so the confirmed server row 
 ## Limitations
 
 - No realtime: other users' changes appear on refetch (window focus, reconnect, navigation, stale).
-- The outbox lives in component state; unsent/failed messages are lost on navigation or reload.
+- The outbox lives in component state; unsent/failed messages are lost on navigation or reload
+  (the "sent" check icon of earlier messages likewise only lasts for the open conversation).
+- A network failure after the server stored a message looks like a failed send; retrying would then
+  post a duplicate (no idempotency key yet).
 - The events timeline fetches a window of 100; the messages view loads the newest 50 ("Load earlier").
 - The Next.js client router cache can briefly show a prior server render before the query refetches.

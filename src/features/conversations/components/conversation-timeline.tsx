@@ -1,3 +1,4 @@
+import { CheckIcon, ClockIcon, TriangleAlertIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { dayLabel, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -16,17 +17,18 @@ export type TimelineMessage = {
     intent?: string | null;
     sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
   } | null;
+  /**
+   * Delivery state of a message the current user just sent (UI state, never persisted).
+   * Absent for everything loaded from the server in the normal way.
+   */
+  delivery?: DeliveryState;
+  /** Why it failed, when `delivery` is "failed". */
+  deliveryError?: string | null;
+  /** Stable client identity of a message sent in this session; keeps its React key across reconciliation. */
+  clientId?: string;
 };
 
-/** A message the user just submitted that the server has not confirmed yet (see lib/query/outbox.ts). */
-export type PendingMessage = {
-  clientId: string;
-  body: string;
-  type: "MESSAGE" | "INTERNAL_NOTE";
-  from: "USER" | "CUSTOMER";
-  status: "sending" | "failed";
-  error: string | null;
-};
+export type DeliveryState = "sending" | "sent" | "failed";
 
 export type TimelineSystemEvent = TimelineEvent & { id: string; createdAt: Date | string };
 
@@ -43,7 +45,6 @@ export function ConversationTimeline({
   messages,
   events,
   names,
-  pending = [],
   onRetry,
   onDiscard,
   aiPending = false,
@@ -52,8 +53,6 @@ export function ConversationTimeline({
   events: TimelineSystemEvent[];
   /** user id -> display name, for wording audit events. */
   names: ReadonlyMap<string, string>;
-  /** Messages being sent or failed; shown after the confirmed history, clearly marked. */
-  pending?: PendingMessage[];
   onRetry?: (clientId: string) => void;
   onDiscard?: (clientId: string) => void;
   /** An AI reply is being generated on the server (no placeholder message is created). */
@@ -62,7 +61,11 @@ export function ConversationTimeline({
   const entries: Entry[] = [
     ...messages.map((message): Entry => ({
       kind: "message",
-      at: new Date(message.createdAt).getTime(),
+      // Not-yet-confirmed messages sort after everything else (stable, in send order).
+      at:
+        message.delivery === "sending" || message.delivery === "failed"
+          ? Number.MAX_SAFE_INTEGER
+          : new Date(message.createdAt).getTime(),
       message,
     })),
     ...events
@@ -76,7 +79,7 @@ export function ConversationTimeline({
       })),
   ].sort((a, b) => a.at - b.at);
 
-  if (entries.length === 0 && pending.length === 0 && !aiPending) {
+  if (entries.length === 0 && !aiPending) {
     return <p className="text-muted-foreground py-8 text-center text-sm">No messages yet.</p>;
   }
 
@@ -90,7 +93,7 @@ export function ConversationTimeline({
         const showDay = index === 0 || day !== days[index - 1];
         return (
           <li
-            key={entry.kind === "message" ? entry.message.id : entry.id}
+            key={entry.kind === "message" ? (entry.message.clientId ?? entry.message.id) : entry.id}
             className="flex flex-col gap-3"
           >
             {showDay ? (
@@ -103,48 +106,11 @@ export function ConversationTimeline({
                 {entry.text} &middot; {formatTime(entry.createdAt)}
               </p>
             ) : (
-              <MessageBubble message={entry.message} />
+              <MessageBubble message={entry.message} onRetry={onRetry} onDiscard={onDiscard} />
             )}
           </li>
         );
       })}
-      {pending.map((item) => (
-        <li key={item.clientId} className="flex flex-col gap-1">
-          <article
-            aria-label={
-              item.type === "INTERNAL_NOTE" ? "Internal note (not sent)" : "Message (not sent)"
-            }
-            aria-busy={item.status === "sending"}
-            className={cn(
-              "flex max-w-[85%] flex-col gap-1 rounded-xl border px-3 py-2 opacity-80",
-              item.type === "INTERNAL_NOTE"
-                ? "border-chart-2 bg-chart-2/10 self-center border-dashed"
-                : item.from === "CUSTOMER"
-                  ? "bg-muted self-start"
-                  : "bg-accent self-end",
-              item.status === "failed" && "border-destructive",
-            )}
-          >
-            <p className="text-sm break-words whitespace-pre-wrap">{item.body}</p>
-            {item.status === "sending" ? (
-              <p className="text-muted-foreground text-xs">Sending...</p>
-            ) : (
-              <p
-                role="alert"
-                className="text-destructive flex flex-wrap items-center gap-2 text-xs"
-              >
-                Failed to send: {item.error}
-                <Button size="xs" variant="outline" onClick={() => onRetry?.(item.clientId)}>
-                  Retry
-                </Button>
-                <Button size="xs" variant="ghost" onClick={() => onDiscard?.(item.clientId)}>
-                  Discard
-                </Button>
-              </p>
-            )}
-          </article>
-        </li>
-      ))}
       {aiPending ? (
         <li role="status" className="text-muted-foreground self-end text-xs">
           AI Agent is writing a reply...
@@ -154,7 +120,15 @@ export function ConversationTimeline({
   );
 }
 
-function MessageBubble({ message }: { message: TimelineMessage }) {
+function MessageBubble({
+  message,
+  onRetry,
+  onDiscard,
+}: {
+  message: TimelineMessage;
+  onRetry?: (clientId: string) => void;
+  onDiscard?: (clientId: string) => void;
+}) {
   const isNote = message.messageType === "INTERNAL_NOTE";
   const fromCustomer = message.senderType === "CUSTOMER";
   const fromAi = message.senderType === "AI_AGENT";
@@ -183,6 +157,7 @@ function MessageBubble({ message }: { message: TimelineMessage }) {
         !isNote && fromCustomer && "bg-muted self-start",
         !isNote && !fromCustomer && !fromAi && "bg-accent self-end",
         fromAi && "border-primary/40 bg-primary/5 self-end",
+        message.delivery === "failed" && "border-destructive",
       )}
     >
       <header className="text-muted-foreground flex items-center gap-2 text-xs">
@@ -191,11 +166,39 @@ function MessageBubble({ message }: { message: TimelineMessage }) {
         <time dateTime={new Date(message.createdAt).toISOString()}>
           {formatTime(message.createdAt)}
         </time>
+        {message.delivery ? <DeliveryIndicator state={message.delivery} /> : null}
       </header>
-      <p className="text-sm break-words whitespace-pre-wrap">{message.body}</p>
+      <p className="text-sm wrap-break-word whitespace-pre-wrap">{message.body}</p>
       {isNote ? <p className="text-muted-foreground text-xs">Only visible to your team.</p> : null}
       {fromAi ? <AiSources ai={message.ai ?? null} /> : null}
+      {message.delivery === "failed" && message.clientId ? (
+        <p role="alert" className="text-destructive flex flex-wrap items-center gap-2 text-xs">
+          Not sent{message.deliveryError ? `: ${message.deliveryError}` : ""}
+          <Button size="xs" variant="outline" onClick={() => onRetry?.(message.clientId!)}>
+            Retry
+          </Button>
+          <Button size="xs" variant="ghost" onClick={() => onDiscard?.(message.clientId!)}>
+            Discard
+          </Button>
+        </p>
+      ) : null}
     </article>
+  );
+}
+
+/** A small icon next to the time: clock (sending), check (sent), warning (failed). Not a message. */
+function DeliveryIndicator({ state }: { state: DeliveryState }) {
+  const label = { sending: "Sending", sent: "Sent", failed: "Failed to send" }[state];
+  const Icon = { sending: ClockIcon, sent: CheckIcon, failed: TriangleAlertIcon }[state];
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      className={cn("ml-auto inline-flex", state === "failed" && "text-destructive")}
+    >
+      <Icon className="size-3.5" aria-hidden="true" />
+    </span>
   );
 }
 

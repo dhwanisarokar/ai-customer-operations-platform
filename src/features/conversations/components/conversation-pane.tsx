@@ -25,7 +25,7 @@ import { useConversation, useConversationEvents, useConversationMessages } from 
 import { AskAiButton } from "./ask-ai-button";
 import { ConversationPriorityBadge, ConversationStatusBadge } from "./conversation-badges";
 import { ConversationControls } from "./conversation-controls";
-import { ConversationTimeline } from "./conversation-timeline";
+import { ConversationTimeline, type TimelineMessage } from "./conversation-timeline";
 import { MessageComposer } from "./message-composer";
 
 type Props = {
@@ -104,6 +104,42 @@ export function ConversationPane({
   );
 
   const messages = messagesQuery.data;
+
+  // Server state (TanStack Query) + temporary UI state (the outbox) -> ONE list of messages.
+  // A message the user sent keeps its clientId through every state. Once the server accepted it, the
+  // persisted record (matched by its server id, never by text) replaces the temporary entry in the
+  // same position and carries the "sent" indicator, so exactly one copy is ever rendered.
+  const timelineMessages = useMemo<TimelineMessage[]>(() => {
+    const sentByServerId = new Map(
+      outbox.items.flatMap((item) =>
+        item.status === "sent" && item.serverId ? [[item.serverId, item] as const] : [],
+      ),
+    );
+    const persisted = (messages?.items ?? []).map((message): TimelineMessage =>
+      sentByServerId.has(message.id)
+        ? { ...message, clientId: sentByServerId.get(message.id)!.clientId, delivery: "sent" }
+        : message,
+    );
+    const persistedIds = new Set(persisted.map((message) => message.id));
+    const unconfirmed = outbox.items
+      .filter(
+        (item) => !(item.status === "sent" && item.serverId && persistedIds.has(item.serverId)),
+      )
+      .map((item): TimelineMessage => ({
+        id: item.clientId,
+        clientId: item.clientId,
+        senderType: item.input.from === "CUSTOMER" ? "CUSTOMER" : "USER",
+        messageType: item.input.type,
+        body: item.input.body,
+        createdAt: new Date(item.createdAt),
+        sender:
+          item.input.from === "CUSTOMER" ? null : { id: currentUserId, name: "You", email: "" },
+        delivery: item.status === "failed" ? "failed" : "sending",
+        deliveryError: item.error,
+      }));
+    return [...persisted, ...unconfirmed];
+  }, [messages, outbox.items, currentUserId]);
+
   const events = useMemo(() => {
     const ascending = [...(eventsQuery.data?.items ?? [])].reverse();
     // Only show audit events inside the time window of the loaded messages.
@@ -218,17 +254,9 @@ export function ConversationPane({
           </div>
         ) : (
           <ConversationTimeline
-            messages={messages?.items ?? []}
+            messages={timelineMessages}
             events={events}
             names={names}
-            pending={outbox.items.map((item) => ({
-              clientId: item.clientId,
-              body: item.input.body,
-              type: item.input.type,
-              from: item.input.from,
-              status: item.status,
-              error: item.error,
-            }))}
             onRetry={(clientId) => void outbox.retry(clientId)}
             onDiscard={outbox.discard}
             aiPending={aiRunning}

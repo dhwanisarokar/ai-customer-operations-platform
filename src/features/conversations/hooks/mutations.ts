@@ -222,6 +222,37 @@ export function useCreateConversation() {
  * "Optimistic" display of the message while it is in flight is the outbox's job (useMessageOutbox):
  * the cache only ever holds messages the server has accepted.
  */
+/** Adds a server-accepted message to every cached messages window it belongs in (idempotent by id). */
+function appendMessageToCache(
+  queryClient: QueryClient,
+  org: OrgId,
+  conversationId: string,
+  message: MessageJson,
+) {
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: conversationsKeys.messagesAll(org, conversationId) })) {
+    const params = query.queryKey[query.queryKey.length - 1] as MessagesParams;
+    if (message.messageType === "INTERNAL_NOTE" && !params.includeInternal) continue;
+    queryClient.setQueryData<MessagesResponse>(query.queryKey, (old) =>
+      old && !old.items.some((item) => item.id === message.id)
+        ? { ...old, items: [...old.items, message], total: old.total + 1 }
+        : old,
+    );
+  }
+}
+
+function refreshConversation(queryClient: QueryClient, org: OrgId, conversationId: string) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: conversationsKeys.messagesAll(org, conversationId) }),
+    queryClient.invalidateQueries({ queryKey: conversationsKeys.detail(org, conversationId) }),
+    queryClient.invalidateQueries({ queryKey: conversationsKeys.lists(org) }),
+    queryClient.invalidateQueries({
+      queryKey: [...conversationsKeys.item(org, conversationId), "events"],
+    }),
+  ]);
+}
+
 export function useSendMessage(conversationId: string) {
   const queryClient = useQueryClient();
   const org = useOrganizationScope();
@@ -234,31 +265,11 @@ export function useSendMessage(conversationId: string) {
         body: input,
       }),
 
-    onSuccess: ({ message }) => {
-      for (const query of queryClient
-        .getQueryCache()
-        .findAll({ queryKey: conversationsKeys.messagesAll(org, conversationId) })) {
-        const params = query.queryKey[query.queryKey.length - 1] as MessagesParams;
-        if (message.messageType === "INTERNAL_NOTE" && !params.includeInternal) continue;
-        queryClient.setQueryData<MessagesResponse>(query.queryKey, (old) =>
-          old && !old.items.some((item) => item.id === message.id)
-            ? { ...old, items: [...old.items, message], total: old.total + 1 }
-            : old,
-        );
-      }
-    },
+    onSuccess: ({ message }) => appendMessageToCache(queryClient, org, conversationId, message),
 
-    onSettled: () =>
-      Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: conversationsKeys.messagesAll(org, conversationId),
-        }),
-        queryClient.invalidateQueries({ queryKey: conversationsKeys.detail(org, conversationId) }),
-        queryClient.invalidateQueries({ queryKey: conversationsKeys.lists(org) }),
-        queryClient.invalidateQueries({
-          queryKey: [...conversationsKeys.item(org, conversationId), "events"],
-        }),
-      ]),
+    // Not returned on purpose: returning the promise would keep the mutation "pending" until the
+    // refetch finished, leaving the pending UI visible next to the already-stored real message.
+    onSettled: () => void refreshConversation(queryClient, org, conversationId),
   });
 }
 
@@ -268,7 +279,11 @@ export function useSendMessage(conversationId: string) {
  */
 export function useMessageOutbox(conversationId: string) {
   const { mutateAsync } = useSendMessage(conversationId);
-  return useOutbox<SendMessageInput>(mutateAsync);
+  // Reconcile by the server-assigned message id (never by text): see useOutbox.
+  return useOutbox<SendMessageInput, { message: MessageJson }>(
+    mutateAsync,
+    (result) => result.message.id,
+  );
 }
 
 /**
@@ -286,16 +301,10 @@ export function useAiReply(conversationId: string) {
       fetchJson<{ message: MessageJson }>(`/api/conversations/${conversationId}/ai-reply`, {
         method: "POST",
       }),
-    onSettled: () =>
-      Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: conversationsKeys.messagesAll(org, conversationId),
-        }),
-        queryClient.invalidateQueries({ queryKey: conversationsKeys.detail(org, conversationId) }),
-        queryClient.invalidateQueries({ queryKey: conversationsKeys.lists(org) }),
-        queryClient.invalidateQueries({
-          queryKey: [...conversationsKeys.item(org, conversationId), "events"],
-        }),
-      ]),
+    // The stored AI_AGENT message is added to the cache in the same step that ends the pending state.
+    onSuccess: ({ message }) => appendMessageToCache(queryClient, org, conversationId, message),
+    // Not returned on purpose: returning the promise would keep the mutation "pending" until the
+    // refetch finished, leaving the pending UI visible next to the already-stored real message.
+    onSettled: () => void refreshConversation(queryClient, org, conversationId),
   });
 }
