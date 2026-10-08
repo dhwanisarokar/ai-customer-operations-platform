@@ -1,3 +1,4 @@
+import { emitDomainEvent } from "@/server/events/bus";
 import { transaction } from "@/db/client";
 import { isUniqueViolation } from "@/db/errors";
 import type { AssignTagInput } from "@/features/customers/schemas";
@@ -71,7 +72,7 @@ export async function addTagToCustomer(
   const organizationId = ctx.organization.id;
 
   try {
-    return await transaction(async (tx) => {
+    const assigned = await transaction(async (tx) => {
       await requireCustomer(ctx, customerId, tx);
 
       const tag =
@@ -94,6 +95,13 @@ export async function addTagToCustomer(
       );
       return tag;
     });
+    await emitDomainEvent({
+      organizationId,
+      actorUserId: ctx.user.id,
+      type: "customer.tag_added",
+      data: { customerId, tagId: assigned.id, tagName: assigned.name },
+    });
+    return assigned;
   } catch (error) {
     if (isUniqueViolation(error))
       throw new ConflictError("Tag is already assigned to this customer");
@@ -109,10 +117,12 @@ export async function removeTagFromCustomer(
   ctx.require("tag_customers");
   const organizationId = ctx.organization.id;
 
+  let removed: { id: string; name: string } | undefined;
   await transaction(async (tx) => {
     await requireCustomer(ctx, customerId, tx);
     const tag = await tagsRepository.findById(organizationId, tagId, tx);
     if (!tag) throw new NotFoundError("Tag not found");
+    removed = { id: tag.id, name: tag.name };
     if (!(await tagsRepository.unassign(organizationId, customerId, tagId, tx))) {
       throw new NotFoundError("Tag is not assigned to this customer");
     }
@@ -128,4 +138,12 @@ export async function removeTagFromCustomer(
       tx,
     );
   });
+  if (removed) {
+    await emitDomainEvent({
+      organizationId,
+      actorUserId: ctx.user.id,
+      type: "customer.tag_removed",
+      data: { customerId, tagId: removed.id, tagName: removed.name },
+    });
+  }
 }

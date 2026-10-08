@@ -14,6 +14,10 @@ export const usersRepository = {
     return getDb().user.findUnique({ where: { authProviderId }, select });
   },
 
+  findById(id: string): Promise<AppUser | null> {
+    return getDb().user.findUnique({ where: { id }, select });
+  },
+
   findByEmail(email: string): Promise<AppUser | null> {
     return getDb().user.findUnique({ where: { email }, select });
   },

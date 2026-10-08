@@ -52,6 +52,19 @@ export const conversationsKeys = {
   approvals: (org: OrgId, id: string) => [...conversationsKeys.item(org, id), "approvals"] as const,
 };
 
+export const automationsKeys = {
+  all: (org: OrgId) => [...scope(org), "automations"] as const,
+  lists: (org: OrgId) => [...automationsKeys.all(org), "list"] as const,
+  list: (org: OrgId, params: object) => [...automationsKeys.lists(org), params] as const,
+  detail: (org: OrgId, id: string) => [...automationsKeys.all(org), "detail", id] as const,
+  executions: (org: OrgId, id: string, params: object) =>
+    [...automationsKeys.all(org), "executions", id, params] as const,
+  executionsAll: (org: OrgId, id: string) =>
+    [...automationsKeys.all(org), "executions", id] as const,
+  execution: (org: OrgId, id: string, executionId: string) =>
+    [...automationsKeys.all(org), "execution", id, executionId] as const,
+};
+
 export const knowledgeKeys = {
   all: (org: OrgId) => [...scope(org), "knowledge"] as const,
   lists: (org: OrgId) => [...knowledgeKeys.all(org), "list"] as const,

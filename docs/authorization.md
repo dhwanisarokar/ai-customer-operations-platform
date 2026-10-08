@@ -100,3 +100,9 @@ reply uses `send_messages` (it stores a message in the conversation); no separat
 exists yet. The AI itself holds no permissions: it has no tools, and authorization is always
 deterministic application code. Details: [knowledge-base.md](knowledge-base.md),
 [ai-agent.md](ai-agent.md).
+
+## Automation permissions (Phase 6)
+
+`view_automations` (all roles); `create_automations`, `update_automations`, `delete_automations`,
+`execute_automations` (ADMIN and OWNER). An automation acts with its creator's permissions, checked when it
+is saved and again every time it runs. See [automations.md](automations.md).

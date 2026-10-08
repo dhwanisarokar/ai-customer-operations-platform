@@ -54,6 +54,8 @@ model Organization {
   knowledgeChunks    KnowledgeDocumentChunk[]
   aiActionApprovals  AiActionApproval[]
   aiToolAudits       AiToolAudit[]
+  automations        Automation[]
+  automationRuns     AutomationExecution[]
 
   @@map("organizations")
 }
@@ -509,4 +511,79 @@ model AiToolAudit {
   @@index([organizationId, createdAt(sort: Desc)])
   @@index([organizationId, approvalId])
   @@map("ai_tool_audits")
+}
+
+// ---- Automations (Phase 6) -------------------------------------------------------------------
+
+enum AutomationExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// "WHEN <trigger> AND <conditions> THEN <actions>". Deterministic rules, no model involved.
+// `conditions` and `actions` are validated with Zod against the trigger/action registries on every
+// write; JSON is used only for those two ordered lists. The creator's permissions are re-checked
+// each time the automation runs.
+model Automation {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @db.Uuid
+  name            String
+  description     String?
+  enabled         Boolean  @default(true)
+  triggerType     String
+  conditions      Json
+  actions         Json
+  // Plain column (history outlives users); the run executes with this member's current role.
+  createdByUserId String   @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  executions   AutomationExecution[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, enabled, triggerType])
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@map("automations")
+}
+
+// One row per (automation, domain event). The unique key is the idempotency guarantee: the same
+// event can never create (or run) a second execution of the same automation. The definition is
+// snapshotted so history stays understandable after the automation is edited, and so the worker
+// runs exactly what matched.
+model AutomationExecution {
+  id               String                    @id @default(uuid()) @db.Uuid
+  organizationId   String                    @db.Uuid
+  automationId     String                    @db.Uuid
+  eventId          String                    @db.Uuid
+  eventType        String
+  status           AutomationExecutionStatus @default(QUEUED)
+  attempts         Int                       @default(0)
+  createdAt        DateTime                  @default(now())
+  startedAt        DateTime?
+  completedAt      DateTime?
+  // Set while a worker owns the run; a stale lock (crashed worker) can be taken over.
+  lockedAt         DateTime?
+  // Safe error code/message only (never raw database or provider errors).
+  errorCode        String?
+  errorMessage     String?
+  // Minimal event data (ids and enum values; sensitive fields such as message text are dropped).
+  eventData        Json
+  // { name, conditions, actions } as they were when the event matched.
+  definition       Json
+  // [{ field, operator, expected, actual?, passed }]
+  conditionResults Json
+  // [{ index, action, status, startedAt, completedAt, error? }] updated after each action.
+  actionResults    Json                      @default("[]")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  automation   Automation   @relation(fields: [automationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, automationId, eventId])
+  @@index([organizationId, automationId, createdAt(sort: Desc)])
+  @@index([organizationId, status])
+  @@map("automation_executions")
 }

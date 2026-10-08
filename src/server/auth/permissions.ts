@@ -24,6 +24,11 @@ export const PERMISSIONS = [
   "view_knowledge",
   "edit_knowledge",
   "publish_knowledge",
+  "view_automations",
+  "create_automations",
+  "update_automations",
+  "delete_automations",
+  "execute_automations",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -48,6 +53,8 @@ const MEMBER_PERMISSIONS: readonly Permission[] = [
   // (publish, unpublish, archive, delete, editing live content) needs an ADMIN.
   "view_knowledge",
   "edit_knowledge",
+  // Automations: members can see what runs in their organization; building them is an ADMIN job.
+  "view_automations",
 ];
 const ADMIN_PERMISSIONS: readonly Permission[] = [
   ...MEMBER_PERMISSIONS,
@@ -56,6 +63,10 @@ const ADMIN_PERMISSIONS: readonly Permission[] = [
   "manage_tags",
   "assign_conversations",
   "publish_knowledge",
+  "create_automations",
+  "update_automations",
+  "delete_automations",
+  "execute_automations",
 ];
 const OWNER_PERMISSIONS: readonly Permission[] = [
   ...ADMIN_PERMISSIONS,

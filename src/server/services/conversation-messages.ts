@@ -1,3 +1,4 @@
+import { emitDomainEvent } from "@/server/events/bus";
 import { transaction } from "@/db/client";
 import { previewOf } from "@/features/conversations/transitions";
 import type { ListMessagesQuery, SendMessageInput } from "@/features/conversations/schemas";
@@ -37,8 +38,15 @@ export async function sendMessage(
   const isNote = input.type === "INTERNAL_NOTE";
   const fromCustomer = input.from === "CUSTOMER";
 
+  let customerId = "";
+  let reopenedFrom: string | null = null;
+  let statePriority = "";
+  let stateAssignee: string | null = null;
   const message = await transaction(async (tx) => {
     const state = await requireConversationState(ctx, conversationId, tx);
+    customerId = state.customerId;
+    statePriority = state.priority;
+    stateAssignee = state.assignedToUserId;
     if (!isNote && !fromCustomer && state.status === "RESOLVED") {
       throw new ConflictError("This conversation is resolved. Reopen it before replying.");
     }
@@ -67,6 +75,7 @@ export async function sendMessage(
     }
     const reopens = fromCustomer && (state.status === "PENDING" || state.status === "RESOLVED");
     if (reopens) {
+      reopenedFrom = state.status;
       changes.status = "OPEN";
       changes.closedAt = null;
     }
@@ -112,6 +121,34 @@ export async function sendMessage(
     },
     "message added",
   );
+  await emitDomainEvent({
+    organizationId,
+    actorUserId: ctx.user.id,
+    type: "message.created",
+    data: {
+      messageId: message.id,
+      conversationId,
+      customerId,
+      senderType: message.senderType,
+      messageType: message.messageType,
+      body: input.body,
+    },
+  });
+  if (reopenedFrom) {
+    await emitDomainEvent({
+      organizationId,
+      actorUserId: ctx.user.id,
+      type: "conversation.status_changed",
+      data: {
+        conversationId,
+        customerId,
+        status: "OPEN",
+        previousStatus: reopenedFrom,
+        priority: statePriority,
+        assignee: stateAssignee,
+      },
+    });
+  }
   return message;
 }
 

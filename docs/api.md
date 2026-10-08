@@ -327,3 +327,24 @@ organization's approval), 409 `approval_expired` / already handled.
 
 No body. Allowed for the requester or anyone allowed to run the tool. `200 { approval }` (`REJECTED`);
 nothing is executed. Errors as above.
+
+## Automations
+
+Details and lifecycle: [automations.md](automations.md). All routes are organization-scoped; another
+organization's id is `404`.
+
+| Method and path                                    | Permission          | Notes                                                   |
+| -------------------------------------------------- | ------------------- | ------------------------------------------------------- |
+| `GET /api/automations`                             | view_automations    | `page`, `pageSize`                                      |
+| `POST /api/automations`                            | create_automations  | `201 { automation }`; strict body (no `organizationId`) |
+| `GET /api/automations/:id`                         | view_automations    |                                                         |
+| `PATCH /api/automations/:id`                       | update_automations  | partial; the whole definition is re-validated           |
+| `DELETE /api/automations/:id`                      | delete_automations  | `204`                                                   |
+| `POST /api/automations/:id/enable` / `disable`     | update_automations  | `{ automation }`                                        |
+| `GET /api/automations/:id/executions`              | view_automations    | paged runs, newest first                                |
+| `GET /api/automations/:id/executions/:executionId` | view_automations    | event data, condition results, action results, error    |
+| `POST /api/automations/:id/test`                   | execute_automations | dry run with `{ data: {...} }`; executes nothing        |
+
+Create/update body: `{ name, description?, enabled?, trigger, conditions: [{ field, operator, value? }],
+actions: [{ type, input }] }`. Validation errors: `400 { error: { code: "validation_error", details: {
+problems: string[] } } }`.

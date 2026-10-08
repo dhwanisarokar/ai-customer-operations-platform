@@ -44,4 +44,8 @@ src/
 - AI tools, deterministic authorization and human approval: [ai-tools](ai-tools.md). The model may
   request an action; only application code authorizes and executes it. Tools call the existing
   services (`src/server/ai/tools`), mutations wait in `ai_action_approvals` for a human.
+- Automations: [automations](automations.md). Services emit typed domain events after commit; a deterministic
+  engine matches enabled automations, records one execution per (automation, event) (unique key =
+  idempotency) and a BullMQ worker (`npm run worker`) runs the actions through the existing services with the
+  automation creator's current permissions. PostgreSQL is the source of truth; Redis only carries execution ids.
 - `GET /api/health` — returns 200 `{status:"ok"}` or 503 `{status:"degraded"}` depending on DB reachability.

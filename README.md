@@ -10,7 +10,7 @@ campaigns. Built as a modular monolith on Next.js, PostgreSQL and (later) BullMQ
 ## Stack
 
 Next.js 16 (App Router) · React 19 · TypeScript (strict) · Tailwind CSS 4 + shadcn/ui · Clerk ·
-PostgreSQL + Prisma 7 · Zod · Pino · Gemini (`@google/genai`) + pgvector · TanStack Query · Vitest + React Testing Library
+PostgreSQL + Prisma 7 · Redis + BullMQ (automations) · Zod · Pino · Gemini (`@google/genai`) + pgvector · TanStack Query · Vitest + React Testing Library
 
 Planned: Stripe (test mode), BullMQ/Redis, pgvector, React Flow, Playwright.
 
@@ -45,6 +45,7 @@ npm run dev                 # http://localhost:3000, health: /api/health
 - [Architecture](docs/architecture.md)
 - [Customer management](docs/customer-management.md) · [Conversations & inbox](docs/conversations.md)
 - [Knowledge base](docs/knowledge-base.md) · [RAG](docs/rag.md) · [AI agent](docs/ai-agent.md) · [AI conversation policy](docs/ai-conversation-policy.md) · [AI tools & approval](docs/ai-tools.md)
+- [Automations & worker](docs/automations.md)
 - [Authentication](docs/authentication.md) · [Authorization](docs/authorization.md) · [API](docs/api.md)
 - [Server state (TanStack Query)](docs/server-state.md)
 - [Database](docs/database.md)

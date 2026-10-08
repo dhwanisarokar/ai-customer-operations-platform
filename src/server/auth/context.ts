@@ -61,6 +61,14 @@ export async function resolveOrganizationContext(
   return buildContext(user, first);
 }
 
+/** The same context `resolveOrganizationContext` builds, from a membership that is already loaded. */
+export function contextFromMembership(
+  user: AppUser,
+  membership: { id: string; role: Role; organization: { id: string; name: string; slug: string } },
+): OrganizationContext {
+  return buildContext(user, membership);
+}
+
 function buildContext(
   user: AppUser,
   membership: { id: string; role: Role; organization: { id: string; name: string; slug: string } },

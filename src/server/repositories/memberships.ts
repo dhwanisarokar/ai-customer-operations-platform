@@ -56,6 +56,22 @@ export const membershipsRepository = {
     });
   },
 
+  /**
+   * The user, their membership and the organization in ONE Prisma call. For callers that already
+   * know the user id (the automation worker) and would otherwise run three sequential lookups.
+   */
+  findContextSource(userId: string, organizationId: string) {
+    return getDb().membership.findUnique({
+      where: { userId_organizationId: { userId, organizationId } },
+      select: {
+        id: true,
+        role: true,
+        organization: { select: orgSelect },
+        user: { select: { id: true, authProviderId: true, email: true, name: true } },
+      },
+    });
+  },
+
   listForUser(userId: string): Promise<MembershipWithOrganization[]> {
     return getDb().membership.findMany({
       where: { userId },
@@ -68,6 +84,16 @@ export const membershipsRepository = {
     const rows = await getDb().membership.findMany({
       where: { organizationId },
       orderBy: { createdAt: "asc" },
+      select: memberSelect,
+    });
+    return rows.map(toMember);
+  },
+
+  /** Members of ONE organization among the given user ids, in a single query. */
+  async listByUserIds(organizationId: string, userIds: string[]): Promise<MemberRecord[]> {
+    if (userIds.length === 0) return [];
+    const rows = await getDb().membership.findMany({
+      where: { organizationId, userId: { in: userIds } },
       select: memberSelect,
     });
     return rows.map(toMember);

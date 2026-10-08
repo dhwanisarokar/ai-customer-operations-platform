@@ -1,3 +1,4 @@
+import { emitDomainEvent } from "@/server/events/bus";
 import { isUniqueViolation } from "@/db/errors";
 import { transaction } from "@/db/client";
 import type {
@@ -72,6 +73,17 @@ export async function createCustomer(ctx: OrganizationContext, input: CreateCust
       return created;
     });
     log.info({ organizationId, customerId: customer.id, actorId: ctx.user.id }, "customer created");
+    await emitDomainEvent({
+      organizationId,
+      actorUserId: ctx.user.id,
+      type: "customer.created",
+      data: {
+        customerId: customer.id,
+        status: customer.status,
+        company: customer.company ?? null,
+        source: customer.source ?? null,
+      },
+    });
     return customer;
   } catch (error) {
     throw await translateConflict(error, organizationId, input.email);
@@ -86,11 +98,13 @@ export async function updateCustomer(
   ctx.require("update_customers");
   const organizationId = ctx.organization.id;
 
+  let changedFields: string[] = [];
   try {
-    return await transaction(async (tx) => {
+    const updated = await transaction(async (tx) => {
       const current = await requireCustomer(ctx, customerId, tx);
       const changes = diffCustomer(current, input);
-      if (Object.keys(changes).length === 0) return current;
+      changedFields = Object.keys(changes);
+      if (changedFields.length === 0) return current;
 
       const data: UpdateCustomerData = {};
       for (const key of Object.keys(changes) as (keyof UpdateCustomerInput)[]) {
@@ -118,6 +132,20 @@ export async function updateCustomer(
       );
       return updated;
     });
+    if (changedFields.length > 0) {
+      await emitDomainEvent({
+        organizationId,
+        actorUserId: ctx.user.id,
+        type: "customer.updated",
+        data: {
+          customerId,
+          status: updated.status,
+          company: updated.company ?? null,
+          changedFields,
+        },
+      });
+    }
+    return updated;
   } catch (error) {
     throw await translateConflict(error, organizationId, input.email, customerId);
   }

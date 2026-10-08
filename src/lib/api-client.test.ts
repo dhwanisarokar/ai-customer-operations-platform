@@ -107,3 +107,41 @@ describe("apiRequest (non-throwing wrapper)", () => {
     });
   });
 });
+
+describe("fetchJson: validation problems", () => {
+  it("exposes the problems of a definition validation error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json(400, {
+          error: {
+            code: "validation_error",
+            message: "The automation is not valid",
+            details: { problems: ["Condition 1: a value is required."] },
+          },
+        }),
+      ),
+    );
+    const error = await failure(fetchJson("/api/x"));
+    expect(error.problems).toEqual(["Condition 1: a value is required."]);
+    expect(error.fieldErrors).toEqual({});
+  });
+
+  it("still maps field-level Zod details and tolerates other shapes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json(400, {
+          error: {
+            code: "validation_error",
+            message: "Invalid",
+            details: [{ path: "name", message: "Required" }],
+          },
+        }),
+      ),
+    );
+    const error = await failure(fetchJson("/api/x"));
+    expect(error.fieldErrors).toEqual({ name: "Required" });
+    expect(error.problems).toEqual([]);
+  });
+});

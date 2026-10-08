@@ -5,7 +5,12 @@ export type ApiResult<T> =
   | { ok: false; status: number; message: string; fieldErrors: FieldErrors };
 
 type ErrorBody = {
-  error?: { code?: string; message?: string; details?: { path: string; message: string }[] };
+  error?: {
+    code?: string;
+    message?: string;
+    /** Zod issues, or `{ problems: string[] }` for definition validation (automations). */
+    details?: { path: string; message: string }[] | { problems?: string[] };
+  };
 };
 
 /**
@@ -18,6 +23,8 @@ export class ApiError extends Error {
     message: string,
     readonly code: string | null = null,
     readonly fieldErrors: FieldErrors = {},
+    /** Human-readable validation problems (e.g. every issue in an automation definition). */
+    readonly problems: string[] = [],
   ) {
     super(message);
     this.name = "ApiError";
@@ -59,14 +66,18 @@ export async function fetchJson<T>(
 
   const body = (await response.json().catch(() => null)) as ErrorBody | null;
   const fieldErrors: FieldErrors = {};
-  for (const detail of body?.error?.details ?? []) {
+  const details = body?.error?.details;
+  for (const detail of Array.isArray(details) ? details : []) {
     if (detail.path && !fieldErrors[detail.path]) fieldErrors[detail.path] = detail.message;
   }
+  const problems =
+    details && !Array.isArray(details) && Array.isArray(details.problems) ? details.problems : [];
   throw new ApiError(
     response.status,
     body?.error?.message ?? GENERIC_MESSAGE,
     body?.error?.code ?? null,
     fieldErrors,
+    problems,
   );
 }
 

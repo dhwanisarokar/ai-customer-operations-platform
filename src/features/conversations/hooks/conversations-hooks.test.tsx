@@ -22,6 +22,7 @@ import type {
 } from "../api/types";
 import { listConversationsQuerySchema } from "../schemas";
 import {
+  AUTOMATION_FOLLOW_UP_DELAYS_MS,
   useAiDraft,
   useAssignConversation,
   useChangeConversationPriority,
@@ -186,6 +187,85 @@ describe("conversation status (optimistic)", () => {
     await waitFor(() => expect(detail(client).status).toBe("RESOLVED"));
     await waitFor(() => expect(listed(client).status).toBe("RESOLVED"));
     expect(api.count("GET", "/api/conversations/c1")).toBe(1);
+  });
+
+  it("after a successful change it refreshes the conversation a few more times, so automation side effects appear", async () => {
+    const client = seed();
+    const api = mockApi({
+      "PATCH /api/conversations/c1": () =>
+        json(200, { conversation: conversation({ status: "PENDING" }) }),
+      "GET /api/conversations/c1/events": () =>
+        json(200, { items: [], page: 1, pageSize: 100, total: 0, totalPages: 1 }),
+      "GET /api/conversations/c1": () =>
+        json(200, { conversation: conversation({ status: "PENDING" }) }),
+      "GET /api/conversations?": () =>
+        json(200, conversationList([conversation({ status: "PENDING" })])),
+    });
+    // Capture only the follow-up timers; every other timer behaves normally.
+    const realSetTimeout = window.setTimeout.bind(window);
+    const followUps: { fn: () => void; ms: number }[] = [];
+    const spy = vi.spyOn(window, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+      ...rest: unknown[]
+    ) => {
+      if ((AUTOMATION_FOLLOW_UP_DELAYS_MS as readonly number[]).includes(ms as number)) {
+        followUps.push({ fn, ms: ms as number });
+        return 0;
+      }
+      return realSetTimeout(fn, ms, ...rest);
+    }) as typeof window.setTimeout);
+
+    try {
+      const { result } = renderHookWithQuery(
+        () => ({ mutation: useChangeConversationStatus(), detail: useConversation("c1") }),
+        { client },
+      );
+      await waitFor(() => expect(result.current.detail.isFetching).toBe(false));
+      api.calls.length = 0;
+
+      act(() => result.current.mutation.mutate({ conversationId: "c1", status: "PENDING" }));
+      await waitFor(() => expect(result.current.mutation.isSuccess).toBe(true));
+      await waitFor(() => expect(followUps).toHaveLength(3));
+      await waitFor(() => expect(api.count("GET", "/api/conversations/c1")).toBe(1)); // the normal refetch
+      expect(followUps.map((f) => f.ms)).toEqual([1_500, 4_000, 8_000]);
+
+      // Each follow-up refetches the conversation again; nothing else is scheduled.
+      for (const [index, followUp] of followUps.entries()) {
+        act(() => followUp.fn());
+        await waitFor(() => expect(api.count("GET", "/api/conversations/c1")).toBe(index + 2));
+      }
+      expect(followUps).toHaveLength(3);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a rejected change schedules no follow-ups", async () => {
+    const client = seed();
+    mockApi({ "PATCH /api/conversations/c1": () => apiError(409, "conflict", "no") });
+    const delays: unknown[] = [];
+    const realSetTimeout = window.setTimeout.bind(window);
+    const spy = vi.spyOn(window, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+      ...rest: unknown[]
+    ) => {
+      delays.push(ms);
+      return realSetTimeout(fn, ms, ...rest);
+    }) as typeof window.setTimeout);
+    try {
+      const { result } = renderHookWithQuery(() => useChangeConversationStatus(), { client });
+      act(() => result.current.mutate({ conversationId: "c1", status: "PENDING" }));
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(
+        delays.some((ms) =>
+          (AUTOMATION_FOLLOW_UP_DELAYS_MS as readonly number[]).includes(ms as number),
+        ),
+      ).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("with two rapid changes only the last one to settle reconciles (no flicker from a stale refetch)", async () => {

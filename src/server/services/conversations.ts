@@ -1,3 +1,4 @@
+import { emitDomainEvent } from "@/server/events/bus";
 import { transaction } from "@/db/client";
 import { canTransition, previewOf } from "@/features/conversations/transitions";
 import type {
@@ -125,6 +126,18 @@ export async function createConversation(
     { organizationId, conversationId: conversation.id, actorId: ctx.user.id },
     "conversation created",
   );
+  await emitDomainEvent({
+    organizationId,
+    actorUserId: ctx.user.id,
+    type: "conversation.created",
+    data: {
+      conversationId: conversation.id,
+      customerId: conversation.customer.id,
+      priority: conversation.priority,
+      status: conversation.status,
+      channel: conversation.channel,
+    },
+  });
   return conversation;
 }
 
@@ -178,8 +191,9 @@ export async function updateConversation(
 ): Promise<ConversationDto> {
   ctx.require("update_conversations");
   const organizationId = ctx.organization.id;
+  const changed: { status?: string; priority?: string } = {};
 
-  return transaction(async (tx) => {
+  const result = await transaction(async (tx) => {
     const current = await requireConversationState(ctx, conversationId, tx);
     const next = timestampSequence();
     const now = next();
@@ -198,6 +212,7 @@ export async function updateConversation(
     }
     if (input.priority !== undefined && input.priority !== current.priority) {
       changes.priority = input.priority;
+      changed.priority = current.priority;
       events.push({
         type: "PRIORITY_CHANGED",
         metadata: { from: current.priority, to: input.priority },
@@ -208,6 +223,7 @@ export async function updateConversation(
         throw new ConflictError(`Cannot change status from ${current.status} to ${input.status}`);
       }
       changes.status = input.status;
+      changed.status = current.status;
       changes.closedAt = input.status === "RESOLVED" ? now : null;
       events.push({ type: "STATUS_CHANGED", metadata: { from: current.status, to: input.status } });
     }
@@ -234,6 +250,30 @@ export async function updateConversation(
       tx,
     ))!;
   });
+  const after = {
+    conversationId,
+    customerId: result.customer.id,
+    priority: result.priority,
+    status: result.status,
+    assignee: result.assignee?.id ?? null,
+  };
+  if (changed.status !== undefined) {
+    await emitDomainEvent({
+      organizationId,
+      actorUserId: ctx.user.id,
+      type: "conversation.status_changed",
+      data: { ...after, previousStatus: changed.status },
+    });
+  }
+  if (changed.priority !== undefined) {
+    await emitDomainEvent({
+      organizationId,
+      actorUserId: ctx.user.id,
+      type: "conversation.priority_changed",
+      data: { ...after, previousPriority: changed.priority },
+    });
+  }
+  return result;
 }
 
 /**
@@ -249,8 +289,9 @@ export async function assignConversation(
   ctx.require("view_conversations");
   const organizationId = ctx.organization.id;
   const canAssignOthers = ctx.can("assign_conversations");
+  let previousAssignee: string | null | undefined;
 
-  return transaction(async (tx) => {
+  const result = await transaction(async (tx) => {
     const current = await requireConversationState(ctx, conversationId, tx);
 
     if (!canAssignOthers) {
@@ -263,6 +304,7 @@ export async function assignConversation(
     }
 
     if (current.assignedToUserId !== assigneeId) {
+      previousAssignee = current.assignedToUserId;
       const now = new Date();
       await conversationsRepository.update(
         organizationId,
@@ -293,6 +335,22 @@ export async function assignConversation(
       tx,
     ))!;
   });
+  if (previousAssignee !== undefined) {
+    await emitDomainEvent({
+      organizationId,
+      actorUserId: ctx.user.id,
+      type: "conversation.assigned",
+      data: {
+        conversationId,
+        customerId: result.customer.id,
+        assignee: assigneeId,
+        previousAssignee,
+        status: result.status,
+        priority: result.priority,
+      },
+    });
+  }
+  return result;
 }
 
 export async function unassignConversation(

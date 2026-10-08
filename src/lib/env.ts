@@ -25,6 +25,11 @@ const serverSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.enum(["true", "false"]).optional(),
   ),
+  // Automation queue (Phase 6). Default: BullMQ when REDIS_URL is set, otherwise in-process.
+  AUTOMATION_QUEUE_DRIVER: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["bullmq", "memory"]).optional(),
+  ),
   RAG_MIN_SIMILARITY: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.coerce.number().min(0).max(1).optional(),

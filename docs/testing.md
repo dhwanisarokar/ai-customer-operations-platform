@@ -179,3 +179,20 @@ trailing-customer-run and value checks. `npm run ai:tools-smoke` includes live s
 agent-authored text and a genuine customer request.
 
 Regression `2b`/`2c` in `ai-tools.test.ts` and the staff-last cases in `prompts.test.ts` / `agent.test.ts` cover the draft for a staff-authored action-like message (no mutation, no approval, no "cannot" / "a team member will handle it" / "done"), and that a genuine customer request keeps the normal flow.
+
+## Automations (Phase 6)
+
+- Unit: `src/server/automation/conditions.test.ts` (operators, validation, evaluation, sanitizing),
+  `registries.test.ts` (trigger and action registries, definition validation) and
+  `queue/memory.test.ts` (dedupe, bounded retries, backoff, unrecoverable errors).
+- `tests/integration/automations.test.ts` (real PostgreSQL, in-process queue): the acceptance scenario,
+  replay idempotency (+ the database unique key), disabled automations, every trigger, failed
+  transactions emit nothing, no loops, cross-tenant isolation, failed/permanent/transient actions, retries
+  with partial progress, racing workers, stale-lock takeover, creator role re-checked at run time,
+  unreachable queue, the whole API (CRUD, validation, fake `organizationId`, RBAC, tenant 404s, dry run).
+- `tests/integration/automation-bullmq.test.ts`: the real BullMQ driver (delivery, dedupe, retry with
+  backoff, unrecoverable) and an end-to-end run. **Skipped unless** `TEST_REDIS_URL` points at a throwaway
+  Redis database 15 (the test flushes it): `TEST_REDIS_URL=redis://127.0.0.1:6379/15 npm test`. The
+  ordinary suite needs no Redis.
+- `src/features/automations/components/automations-ui.test.tsx`: builder, validation problems, trigger
+  changes, read-only mode, list toggle, history and run details.

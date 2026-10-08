@@ -133,3 +133,11 @@ search_path.
   CHECK constraints keep the lifecycle consistent (see migration `ai_tools_check_constraints`).
 - `ai_tool_audits`: one row per tool attempt (actor, tool, risk, approval id, outcome, error code).
   No payloads. See [ai-tools.md](ai-tools.md).
+
+## Automations (Phase 6)
+
+- `automations`: rule definitions (`triggerType`, validated `conditions`/`actions` JSON, `enabled`,
+  `createdByUserId`).
+- `automation_executions`: one row per (automation, event); unique `(organizationId, automationId, eventId)`
+  is the idempotency guarantee; composite FK to `automations`; CHECKs keep finished runs consistent
+  (migration `automation_check_constraints`). See [automations.md](automations.md).

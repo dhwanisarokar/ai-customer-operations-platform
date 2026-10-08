@@ -112,8 +112,24 @@ function useOptimisticConversationMutation<TVars extends { conversationId: strin
           queryKey: [...conversationsKeys.item(org, vars.conversationId), "events"],
         }),
       ]);
+      if (!error) scheduleAutomationFollowUps(queryClient, org, vars.conversationId);
     },
   });
+}
+
+/**
+ * Status, priority and assignment changes can start automations. The server answers the request as
+ * soon as the change is saved and the run is queued; the worker applies its actions a moment later
+ * (tags, assignment, status...). There is no push channel, so the conversation is refreshed a few
+ * more times, shortly after, and then left alone. Active queries only; nothing runs after that.
+ */
+export const AUTOMATION_FOLLOW_UP_DELAYS_MS = [1_500, 4_000, 8_000] as const;
+
+function scheduleAutomationFollowUps(queryClient: QueryClient, org: OrgId, conversationId: string) {
+  if (typeof window === "undefined") return;
+  for (const delay of AUTOMATION_FOLLOW_UP_DELAYS_MS) {
+    window.setTimeout(() => void refreshConversation(queryClient, org, conversationId), delay);
+  }
 }
 
 const patchConversation = (conversationId: string, body: Record<string, string>) =>

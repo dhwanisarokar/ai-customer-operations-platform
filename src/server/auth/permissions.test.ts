@@ -82,3 +82,24 @@ describe("role hierarchy", () => {
     expect(canAssignRole(Role.MEMBER, Role.MEMBER)).toBe(false);
   });
 });
+
+describe("automation permissions", () => {
+  it("lets every role view automations", () => {
+    for (const role of [Role.MEMBER, Role.ADMIN, Role.OWNER]) {
+      expect(hasPermission(role, "view_automations")).toBe(true);
+    }
+  });
+
+  it("reserves creating, changing, deleting and testing automations for ADMIN and OWNER", () => {
+    for (const permission of [
+      "create_automations",
+      "update_automations",
+      "delete_automations",
+      "execute_automations",
+    ] as const) {
+      expect(hasPermission(Role.MEMBER, permission)).toBe(false);
+      expect(hasPermission(Role.ADMIN, permission)).toBe(true);
+      expect(hasPermission(Role.OWNER, permission)).toBe(true);
+    }
+  });
+});
