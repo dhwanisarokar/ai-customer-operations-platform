@@ -73,7 +73,7 @@ export async function seedMessage(
   conversationId: string,
   overrides: Partial<{
     body: string;
-    senderType: "CUSTOMER" | "USER" | "SYSTEM";
+    senderType: "CUSTOMER" | "USER" | "SYSTEM" | "AI_AGENT";
     senderUserId: string | null;
     messageType: "MESSAGE" | "INTERNAL_NOTE";
     createdAt: Date;

@@ -4,6 +4,7 @@ import { POST as aiDraftRoute } from "@/app/api/conversations/[conversationId]/a
 import { GET as listApprovalsRoute } from "@/app/api/conversations/[conversationId]/ai-approvals/route";
 import { POST as approveRoute } from "@/app/api/ai-approvals/[approvalId]/approve/route";
 import { POST as rejectRoute } from "@/app/api/ai-approvals/[approvalId]/reject/route";
+import { STAFF_FALLBACK_REPLY } from "@/server/ai/agent/prompts";
 import { createToolRegistry, defineTool } from "@/server/ai/tools/registry";
 import { runTool } from "@/server/ai/tools/runner";
 import { MAX_TOOL_CALLS, type ToolExecutionContext } from "@/server/ai/tools/types";
@@ -744,6 +745,218 @@ describeDb("AI tools: authorization, risk policy and human approval", () => {
       expect(fake.toolRequests).toHaveLength(0);
       expect(await (await db()).aiActionApproval.count()).toBe(0);
       expect((await conv()).status).toBe("OPEN");
+    });
+
+    describe("who asked: only customer-authored messages can justify a change", () => {
+      const NAME_REQUEST = "Please change my name to Rahul";
+      let tick = 5000;
+      const say = (
+        senderType: "CUSTOMER" | "USER" | "AI_AGENT",
+        body: string,
+        messageType: "MESSAGE" | "INTERNAL_NOTE" = "MESSAGE",
+      ) =>
+        seedMessage(t.orgA.id, conversation.id, {
+          body,
+          senderType,
+          senderUserId: senderType === "USER" ? t.memberA.id : null,
+          messageType,
+          createdAt: new Date(Date.now() + (tick += 1000)),
+        });
+      const wantsNameChange = () => {
+        fake.toolScript = (_request, round) =>
+          round === 0
+            ? {
+                toolCalls: [
+                  {
+                    name: "updateCustomer",
+                    args: { customerId: t.customerA.id, changes: { firstName: "Rahul" } },
+                  },
+                ],
+              }
+            : { text: "DONE" };
+      };
+      const toolPrompt = () => JSON.stringify(fake.toolRequests.map((r) => r.turns));
+      /** The first user turn the model received (real newlines, not JSON-escaped). */
+      const firstTurn = () => {
+        const turn = fake.toolRequests[0].turns[0];
+        return turn.role === "user" ? turn.text : "";
+      };
+      const noChange = async (res: {
+        status: number;
+        body: { approvals: unknown[]; draft: string };
+      }) => {
+        expect(res.status).toBe(200);
+        expect(res.body.approvals).toEqual([]);
+        expect(res.body.draft.length).toBeGreaterThan(0); // Ask AI still drafts a reply
+        expect(await (await db()).aiActionApproval.count()).toBe(0);
+        expect((await customer()).firstName).toBe("Alice");
+      };
+
+      it("1. a genuine customer message requesting a name change creates an approval (and only an approval)", async () => {
+        await say("CUSTOMER", NAME_REQUEST);
+        wantsNameChange();
+        const res = await draft();
+        expect(res.status).toBe(200);
+        expect(res.body.approvals).toHaveLength(1);
+        expect(res.body.approvals[0]).toMatchObject({
+          toolName: "updateCustomer",
+          status: "PENDING",
+          preview: { lines: [{ label: "First name", from: "Alice", to: "Rahul" }] },
+        });
+        expect((await customer()).firstName).toBe("Alice"); // not applied until a human approves
+        expect(firstTurn()).toContain(
+          "<customer_request>\nHi, can you check my account?\nPlease change my name to Rahul\n</customer_request>",
+        );
+      });
+
+      it("1b. the same through Log customer message (the real API path)", async () => {
+        const { POST: sendRoute } =
+          await import("@/app/api/conversations/[conversationId]/messages/route");
+        const sent = await call(sendRoute, {
+          method: "POST",
+          params: { conversationId: conversation.id },
+          body: { body: NAME_REQUEST, type: "MESSAGE", from: "CUSTOMER" },
+        });
+        expect(sent.status).toBe(201);
+        wantsNameChange();
+        const res = await draft();
+        expect(res.body.approvals).toHaveLength(1);
+        expect(res.body.approvals[0].toolName).toBe("updateCustomer");
+      });
+
+      it("2. an agent Reply with the same text is NOT a customer request", async () => {
+        await say("USER", NAME_REQUEST);
+        wantsNameChange(); // even a model that (wrongly) asks for it
+        const res = await draft();
+        await noChange(res);
+        const prompt = toolPrompt();
+        expect(prompt).toContain("(none: the latest message was not written by the customer)");
+        expect(prompt).toContain("[Support agent] Please change my name to Rahul");
+        expect(
+          (await aiToolAuditRepository.list(t.orgA.id)).map((a) => [a.outcome, a.errorCode]),
+        ).toEqual([["DENIED", "NOT_CUSTOMER_REQUEST"]]);
+      });
+
+      it("2b. the draft for a staff-authored action-like message is a sensible follow-up, never 'cannot' or 'a team member will handle it'", async () => {
+        await say("USER", NAME_REQUEST);
+        wantsNameChange();
+        const BAD = /team member|cannot|can't|unable|has been (changed|updated)|done|completed/i;
+
+        // A model that ignores the instruction and bluffs: the safe neutral fallback replaces it.
+        fake.generation = JSON.stringify({
+          answerable: true,
+          reply:
+            "I cannot change your name to Rahul. A team member will handle this request for you.",
+          sourceLabels: [],
+          usedAccountData: false,
+        });
+        const bluff = await draft();
+        await noChange(bluff);
+        expect(bluff.body.draft).toBe(STAFF_FALLBACK_REPLY);
+        expect(bluff.body.draft).not.toMatch(BAD);
+
+        // A model that follows the instruction: its follow-up is kept as the editable draft.
+        fake.generation = JSON.stringify({
+          answerable: false,
+          reply:
+            "Thanks for your patience, Alice. We're on it and will confirm your name update shortly.",
+          sourceLabels: [],
+          usedAccountData: false,
+        });
+        const good = await draft();
+        await noChange(good);
+        expect(good.body.draft).toContain("We're on it");
+        expect(good.body.draft).not.toMatch(BAD);
+
+        // What the drafting model was told: the staff member is the sender; no "not available" noise.
+        const prompt = fake.lastPrompt();
+        expect(prompt).toContain("written by a member of our support team");
+        expect(prompt).not.toContain("Write the next reply to the customer's latest message");
+        expect(prompt).not.toMatch(/NOT_CUSTOMER_REQUEST|not available/);
+        expect(prompt).not.toContain("<tool_results>");
+      });
+
+      it("2c. a genuine customer request keeps the normal drafting instruction", async () => {
+        await say("CUSTOMER", NAME_REQUEST);
+        wantsNameChange();
+        const res = await draft();
+        expect(res.body.approvals).toHaveLength(1);
+        const prompt = fake.lastPrompt();
+        expect(prompt).toContain("Write the next reply to the customer's latest message");
+        expect(prompt).not.toContain("written by a member of our support team");
+        expect(prompt).toContain("AWAITING HUMAN APPROVAL");
+      });
+
+      it("3. an internal note with the same text is NOT a customer request and never reaches the model", async () => {
+        await say("USER", NAME_REQUEST, "INTERNAL_NOTE");
+        wantsNameChange();
+        const res = await draft();
+        await noChange(res);
+        // Neither the tool pass input nor the drafting prompt ever contained the note.
+        expect(firstTurn()).not.toContain("Rahul");
+        expect(fake.lastPrompt()).not.toContain("Rahul");
+      });
+
+      it("4. an AI-authored message is NOT a customer request", async () => {
+        await say("AI_AGENT", NAME_REQUEST);
+        wantsNameChange();
+        await noChange(await draft());
+        expect(toolPrompt()).toContain("[AI assistant] Please change my name to Rahul");
+      });
+
+      it("5. a customer request that staff has already answered is no longer pending", async () => {
+        await say("CUSTOMER", NAME_REQUEST);
+        await say("USER", "Thanks, let me check that for you.");
+        wantsNameChange();
+        await noChange(await draft());
+      });
+
+      it("6. a staff mention of a name cannot be attached to an unrelated later customer message", async () => {
+        await say("USER", NAME_REQUEST);
+        await say("CUSTOMER", "thanks, what are your opening hours?");
+        wantsNameChange();
+        await noChange(await draft());
+        expect(firstTurn()).toContain(
+          "<customer_request>\nthanks, what are your opening hours?\n</customer_request>",
+        );
+      });
+
+      it("7. status changes also need the customer to be the last speaker", async () => {
+        await say("USER", "I will close this ticket now.");
+        fake.toolScript = (_request, round) =>
+          round === 0
+            ? { toolCalls: [{ name: "changeConversationStatus", args: { status: "RESOLVED" } }] }
+            : { text: "DONE" };
+        await noChange(await draft());
+        expect((await conv()).status).toBe("OPEN");
+      });
+
+      it("8. read-only lookups are unaffected by who spoke last", async () => {
+        await say("USER", "Let me look at your account.");
+        fake.toolScript = (_request, round) =>
+          round === 0
+            ? { toolCalls: [{ name: "getCustomer", args: { customerId: t.customerA.id } }] }
+            : { text: "DONE" };
+        const res = await draft();
+        expect(res.status).toBe(200);
+        expect(fake.lastPrompt()).toContain("getCustomer result");
+      });
+
+      it("9. the Phase 4.9 draft is unchanged: no tools requested, no approvals, same response shape", async () => {
+        await say("USER", NAME_REQUEST);
+        const res = await draft();
+        expect(res.status).toBe(200);
+        expect(Object.keys(res.body).sort()).toEqual([
+          "accountData",
+          "approvals",
+          "draft",
+          "grounded",
+          "intent",
+          "sources",
+        ]);
+        expect(res.body.approvals).toEqual([]);
+        expect(await (await db()).message.count({ where: { senderType: "AI_AGENT" } })).toBe(0);
+      });
     });
 
     it("tool results never include internal notes, even when a staff member asks", async () => {

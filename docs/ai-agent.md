@@ -105,7 +105,7 @@ user id on non-USER senders, so `AI_AGENT` messages from before Phase 4.9 can ne
 
 ## System prompt and structure
 
-`src/server/ai/agent/prompts.ts` holds `AI_SUPPORT_AGENT_V3`: role and tone; grounding ("answer only
+`src/server/ai/agent/prompts.ts` holds `AI_SUPPORT_AGENT_V4`: role and tone; grounding ("answer only
 from `<knowledge_context>`, never invent policy; if it is not there, say you lack the information
 and that a team member will follow up"); uncertainty; untrusted content; privacy; no actions;
 output format. It contains no customer or knowledge text. Change it by adding a new version, so

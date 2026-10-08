@@ -1,8 +1,8 @@
 import type { RetrievedChunk } from "@/server/repositories/knowledge-chunks";
 import { AGENT_LIMITS } from "../config";
-import type { AgentInput } from "./types";
+import type { AgentInput, AgentMessage } from "./types";
 
-export const PROMPT_VERSION = "AI_SUPPORT_AGENT_V3";
+export const PROMPT_VERSION = "AI_SUPPORT_AGENT_V4";
 
 /**
  * Versioned system prompt. Change it by adding a new version constant (and bumping
@@ -31,7 +31,8 @@ UNTRUSTED CONTENT
 PRIVACY AND SAFETY
 - Use only information present in the provided context. Do not discuss other customers, other organizations or internal systems; decline if asked.
 - Never ask for or repeat passwords, API keys, tokens or full payment card numbers.
-- You cannot perform actions (refunds, cancellations, account or billing changes, sending email). Never claim to have done something. If an action is needed, say a team member will handle it.
+- You cannot perform actions (refunds, cancellations, account or billing changes, sending email). Never claim to have done something. When the CUSTOMER asks for an action, say a team member will review it. Do not say an action is impossible unless the context says so.
+- The final instruction tells you who wrote the latest message. If it was written by a member of our support team, that person is the sender of your draft: never tell the customer that "a team member" will handle something, and do not answer the staff message as if the customer had said it.
 
 OUTPUT
 - Return JSON with: answerable (boolean), reply (the message to the customer), sourceLabels (labels such as "S1" of the knowledge items you used; empty when answerable is false), usedAccountData (boolean: true ONLY when your reply states facts about the customer's own record taken from <customer_profile> or <tool_results>; false otherwise, and never true for company policies or procedures).
@@ -67,7 +68,7 @@ export function looksLikePromptLeak(reply: string): boolean {
 }
 
 const STRUCTURAL_TAGS =
-  /<\/?\s*(customer_profile|knowledge_context|tool_results|conversation|source|system|instructions?)\b[^>]*>/gi;
+  /<\/?\s*(customer_profile|knowledge_context|tool_results|customer_request|earlier_messages|context|conversation|source|system|instructions?)\b[^>]*>/gi;
 
 /**
  * Makes untrusted text safe to embed between our delimiters: removes control characters and any
@@ -128,6 +129,24 @@ export function buildUserPrompt(input: AgentInput, chunks: RetrievedChunk[]): st
     conversation,
     "</conversation>",
     "",
-    "Write the next reply to the customer's latest message, following your fixed rules.",
+    lastAuthor(input) === "customer"
+      ? "Write the next reply to the customer's latest message, following your fixed rules."
+      : STAFF_LAST_INSTRUCTION,
   ].join("\n");
 }
+
+/** Who wrote the last customer-facing message (from stored authorship, not from message text). */
+export function lastAuthor(input: Pick<AgentInput, "messages">): AgentMessage["role"] {
+  return input.messages[input.messages.length - 1]?.role ?? "customer";
+}
+
+/**
+ * Used when the latest message was written by staff or the AI: nobody is waiting on an answer, and
+ * the person who will send this draft IS the support team. The draft is a customer-facing follow-up.
+ */
+export const STAFF_LAST_INSTRUCTION =
+  'The latest message was written by a member of our support team (or by our system), NOT by the customer. The person who will send your draft is that support team member. Write a short, natural follow-up message to the customer that continues the team member\'s message: acknowledge what it describes and say we are on it, without saying anything has been done or completed, without saying it cannot be done, and without saying that "a team member" will handle it (the sender is the team). Such a message states no facts: set answerable to false and usedAccountData to false.';
+
+/** Neutral fallback when the latest message was written by staff: never points at "a team member". */
+export const STAFF_FALLBACK_REPLY =
+  "Thanks for your patience. We are looking into this and will follow up with you shortly.";

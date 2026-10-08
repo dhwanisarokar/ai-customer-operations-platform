@@ -14,7 +14,12 @@ vi.mock("@/lib/logger", () => ({
 
 import { AiInvalidResponseError, AiProviderError } from "../errors";
 import { runSupportAgent } from "./agent";
-import { FALLBACK_REPLY, SYSTEM_INSTRUCTION } from "./prompts";
+import {
+  FALLBACK_REPLY,
+  STAFF_FALLBACK_REPLY,
+  STAFF_LAST_INSTRUCTION,
+  SYSTEM_INSTRUCTION,
+} from "./prompts";
 
 const chunk = (id: string, title: string, content: string, similarity = 0.8) => ({
   chunkId: id,
@@ -56,7 +61,7 @@ describe("runSupportAgent: grounding", () => {
       reply: "Refunds take up to 30 days.",
       grounded: true,
       validation: "ok",
-      promptVersion: "AI_SUPPORT_AGENT_V3",
+      promptVersion: "AI_SUPPORT_AGENT_V4",
       provider: "fake",
       model: "fake-model",
       retrievedChunkIds: ["c1", "c2"],
@@ -326,5 +331,43 @@ describe("runSupportAgent: the customer's own record and tool results", () => {
     fake.generation = modelJson({ answerable: true, reply: "30 days.", sourceLabels: ["S1"] });
     const result = await runSupportAgent(input);
     expect(result).toMatchObject({ grounded: true, accountData: false, validation: "ok" });
+  });
+});
+
+describe("runSupportAgent: latest message written by staff", () => {
+  const staffLast = {
+    ...input,
+    messages: [
+      { role: "customer" as const, text: "hello" },
+      { role: "agent" as const, text: "Please change my name to Rahul" },
+    ],
+    retrievalQuery: "hello",
+  };
+
+  it("uses a neutral fallback that never points at 'a team member'", async () => {
+    search.mockResolvedValue([]);
+    fake.generation = modelJson({
+      answerable: true,
+      reply: "A team member will handle this.",
+      sourceLabels: [],
+      usedAccountData: false,
+    });
+    const result = await runSupportAgent(staffLast);
+    expect(result.reply).toBe(STAFF_FALLBACK_REPLY);
+    expect(result.reply).not.toBe(FALLBACK_REPLY);
+    expect(result.validation).toBe("ungrounded_answer_replaced");
+    expect(fake.lastPrompt()).toContain(STAFF_LAST_INSTRUCTION);
+  });
+
+  it("keeps the model's own follow-up when it states no facts (answerable false)", async () => {
+    search.mockResolvedValue([]);
+    fake.generation = modelJson({
+      answerable: false,
+      reply: "Thanks for your patience. We are on it.",
+      sourceLabels: [],
+      usedAccountData: false,
+    });
+    const result = await runSupportAgent(staffLast);
+    expect(result.reply).toBe("Thanks for your patience. We are on it.");
   });
 });

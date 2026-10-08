@@ -52,6 +52,19 @@ export async function runTool(
     return fail(new ToolError("FORBIDDEN", "You do not have permission to perform this action."));
   }
 
+  // Provenance: when the AI is acting, a change must be justified by the CUSTOMER's own latest
+  // messages (database-recorded authorship). Staff replies, internal notes and AI messages are never
+  // customer requests, whatever the model believes.
+  if (tool.riskLevel !== "LOW" && ec.trigger) {
+    const reason = !ec.trigger.customerText.trim()
+      ? "There is no customer request waiting: the latest message was not written by the customer."
+      : (tool.provenance?.(input, ec.trigger) ?? null);
+    if (reason) {
+      await audit(ec, { ...audited, outcome: "DENIED", errorCode: "NOT_CUSTOMER_REQUEST" });
+      return fail(new ToolError("NOT_CUSTOMER_REQUEST", reason));
+    }
+  }
+
   try {
     if (tool.riskLevel === "LOW") {
       const result = await tool.execute(ec, input);

@@ -168,3 +168,14 @@ with tool results. It needs `GEMINI_API_KEY`, makes ~15 requests, never touches 
 never part of `npm test`. The mocked adapter tests in `src/server/ai/gemini/provider.test.ts` pin the
 exact `@google/genai` request/response structures (`functionCall`, `functionResponse`, thought
 signatures, multiple calls) and are typed against the installed SDK.
+
+## Who may ask for a change (Phase 5 follow-up)
+
+`ai-tools.test.ts` ("who asked") proves with the real draft route that a CUSTOMER message (and one logged
+via Log customer message) creates an `updateCustomer` approval, while an agent Reply, an internal note, an
+AI message, an already-answered request and an unrelated later customer message do not, even when the
+scripted model asks for the change anyway; Ask AI still returns a draft. `provenance.test.ts` covers the
+trailing-customer-run and value checks. `npm run ai:tools-smoke` includes live scenarios for
+agent-authored text and a genuine customer request.
+
+Regression `2b`/`2c` in `ai-tools.test.ts` and the staff-last cases in `prompts.test.ts` / `agent.test.ts` cover the draft for a staff-authored action-like message (no mutation, no approval, no "cannot" / "a team member will handle it" / "done"), and that a genuine customer request keeps the normal flow.

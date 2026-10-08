@@ -7,6 +7,8 @@ import { AiInvalidResponseError } from "../errors";
 import {
   buildUserPrompt,
   FALLBACK_REPLY,
+  lastAuthor,
+  STAFF_FALLBACK_REPLY,
   labelFor,
   looksLikePromptLeak,
   PROMPT_VERSION,
@@ -67,6 +69,8 @@ export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
     });
   }
 
+  // When staff wrote last, the sender is the team: the fallback must not point at "a team member".
+  const fallback = lastAuthor(input) === "customer" ? FALLBACK_REPLY : STAFF_FALLBACK_REPLY;
   let reply = output.reply;
   let validation: AgentResult["validation"] = "ok";
   let grounded = output.answerable && sources.length > 0;
@@ -76,7 +80,7 @@ export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
 
   if (looksLikePromptLeak(reply)) {
     // Best-effort guard against the model echoing its instructions.
-    reply = FALLBACK_REPLY;
+    reply = fallback;
     grounded = false;
     accountData = false;
     validation = "prompt_leak_replaced";
@@ -84,7 +88,7 @@ export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
     log.warn({ promptVersion: PROMPT_VERSION }, "reply replaced: possible prompt leak");
   } else if (output.answerable && !grounded && !accountData) {
     // The model claims to answer from knowledge but cited nothing valid (or nothing was retrieved).
-    reply = FALLBACK_REPLY;
+    reply = fallback;
     validation = "ungrounded_answer_replaced";
     log.warn(
       { promptVersion: PROMPT_VERSION, retrieved: chunks.length },

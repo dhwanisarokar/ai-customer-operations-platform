@@ -31,13 +31,44 @@ AI (Gemini)  --function call-->  Tool runner (application code)
    approvals and the model is told they have **not** been applied.
 3. At most **5 tool calls** run per request (`MAX_TOOL_CALLS`); the loop then stops.
 4. The existing RAG draft is generated as before. Tool results (and the "awaiting approval" notes) are
-   added to its prompt in a delimited `<tool_results>` data section (prompt `AI_SUPPORT_AGENT_V3`).
+   added to its prompt in a delimited `<tool_results>` data section (prompt `AI_SUPPORT_AGENT_V4`).
 
 If the tool pass itself fails (provider error) it is skipped and the draft continues without tool
 results. Set `AI_TOOLS_ENABLED=false` to turn the tool pass off entirely (knowledge-only drafts).
 
 The human flow of Phase 4.9 is unchanged: the suggested reply is an editable draft that is only sent
 when a person sends it. Tools are an additional capability, not an autonomous agent.
+
+## Who asked: only the customer's own words can justify a change
+
+The Reply composer is customer-facing communication written by staff, not a command channel. When the
+AI itself acts (the tool pass), changes are tied to **message authorship recorded in the database**:
+
+- The model is shown `<customer_request>` (the contiguous run of CUSTOMER-authored messages at the end of
+  the conversation) separately from `<earlier_messages>`, where lines are labelled `[Customer]`,
+  `[Support agent]` or `[AI assistant]`. It is told staff and AI lines are never customer requests.
+- Internal notes never reach the model at all.
+- **Deterministic guard in the runner** (not trusting the model): a mutating tool request is refused with
+  `NOT_CUSTOMER_REQUEST` (audited as DENIED, no approval created) when
+  1. the latest customer-facing message was not written by the customer (staff or the AI spoke last), or
+  2. for `updateCustomer`, a text value the AI wants to write does not appear in the customer's own
+     messages (name, email, phone, company, job title).
+- Human-approved execution is not affected: the approver has already decided.
+
+Consequences: "Please change my name to Rahul" typed by a customer (or logged with Log customer message)
+creates an approval; the same text sent as a Reply, written in an internal note, or present in an AI
+message does not. Ask AI still drafts a reply in every case. A customer request that staff has already
+answered is no longer pending, so Ask AI will not re-propose it.
+
+### The draft when staff wrote last
+
+The draft is a message the **sender (the support agent) will send to the customer**. When the latest
+message was written by staff or the AI, the drafting prompt says so (from stored authorship): the draft
+continues the team member's message, acknowledges it ("we're looking into it") and never claims the change
+was done, never says it is impossible, and never says "a team member will handle it" (the sender is the
+team). The refused tool request is not reported to the drafting model, and if the model answers with
+unsupported facts anyway the neutral `STAFF_FALLBACK_REPLY` replaces it. A genuine customer request keeps
+the normal instruction and the approval flow.
 
 ## Answers from the customer's own record
 
@@ -131,7 +162,8 @@ ids and tool names only.
 ## Errors
 
 Structured and safe: `UNKNOWN_TOOL`, `VALIDATION_ERROR`, `NOT_FOUND`, `FORBIDDEN`,
-`APPROVAL_REQUIRED`, `APPROVAL_EXPIRED`, `EXECUTION_FAILED`, `TOOL_LIMIT_REACHED`. Unexpected errors
+`APPROVAL_REQUIRED`, `APPROVAL_EXPIRED`, `EXECUTION_FAILED`, `TOOL_LIMIT_REACHED`,
+`NOT_CUSTOMER_REQUEST`. Unexpected errors
 are logged in full on the server and replaced by a generic message; database errors never reach the
 model or the UI.
 

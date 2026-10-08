@@ -89,15 +89,17 @@ provider.generateWithTools = async (request) => {
 
 async function scenario(
   label: string,
-  text: string,
+  input: string | AgentMessage[],
   expectation: string,
   check: (
     requested: string[],
-    draft: { answerable: boolean; usedAccountData?: boolean },
+    draft: { answerable: boolean; usedAccountData?: boolean; reply: string },
   ) => boolean,
 ) {
+  const messages: AgentMessage[] =
+    typeof input === "string" ? [{ role: "customer", text: input }] : input;
+  const text = messages[messages.length - 1].text;
   console.log(`\n# ${label}: "${text}"`);
-  const messages: AgentMessage[] = [{ role: "customer", text }];
   const pass = await runToolPass(ec, { customerId: CUSTOMER_ID, messages }, stubRegistry);
   const requested = pass.calls.map((call) => call.name);
   console.log(`  tools run: [${requested.join(", ")}]`);
@@ -168,6 +170,28 @@ async function main() {
       "You can close this ticket now, thanks",
       "changeConversationStatus requested",
       (tools) => tools.includes("changeConversationStatus"),
+    ),
+    await scenario(
+      "agent-authored text (must not be treated as a customer request)",
+      [
+        { role: "customer", text: "hello" },
+        { role: "agent", text: "Please change my name to Rahul" },
+      ],
+      "no change requested AND a follow-up draft (no 'cannot', no 'a team member', no 'done')",
+      (tools, draft) =>
+        !tools.some((name) => MUTATING.includes(name)) &&
+        !draft.answerable &&
+        !/team member|cannot|can't|unable|has been (changed|updated)|completed/i.test(draft.reply),
+    ),
+    await scenario(
+      "genuine customer request after an agent reply",
+      [
+        { role: "customer", text: "hello" },
+        { role: "agent", text: "How can I help?" },
+        { role: "customer", text: "Please change my name to Rahul" },
+      ],
+      "updateCustomer requested",
+      (tools) => tools.includes("updateCustomer"),
     ),
     await scenario(
       "general question",

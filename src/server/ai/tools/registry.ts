@@ -171,6 +171,36 @@ function parseCustomerChanges(changes: z.output<typeof customerChangesSchema>) {
   return parsed.data;
 }
 
+const norm = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
+const digits = (text: string) => text.replace(/\D/g, "");
+
+/** Fields whose new value must literally appear in what the customer wrote. */
+const STATED_FIELDS = ["firstName", "lastName", "email", "phone", "company", "jobTitle"] as const;
+
+/**
+ * Deterministic provenance for customer changes: every text value the AI wants to write must appear
+ * in the customer's own messages. A name that only an agent (or a note, or the AI) mentioned never
+ * qualifies, whatever the model claims.
+ */
+function customerStatedChanges(
+  input: UpdateCustomerToolInput,
+  trigger: { customerText: string },
+): string | null {
+  const said = norm(trigger.customerText);
+  const saidDigits = digits(trigger.customerText);
+  for (const field of STATED_FIELDS) {
+    const value = input.changes[field];
+    if (typeof value !== "string" || value.trim() === "") continue;
+    const found =
+      field === "phone"
+        ? digits(value) !== "" && saidDigits.includes(digits(value))
+        : said.includes(norm(value));
+    if (!found)
+      return `The customer did not ask to set ${FIELD_LABELS[field] ?? field} to that value.`;
+  }
+  return null;
+}
+
 const FIELD_LABELS: Record<string, string> = {
   firstName: "First name",
   lastName: "Last name",
@@ -193,6 +223,7 @@ const updateCustomerTool = defineTool({
     const updated = await updateCustomer(ctx, input.customerId, parsed);
     return { customerId: updated.id, changedFields: Object.keys(parsed) };
   },
+  provenance: customerStatedChanges,
   async preview({ ctx }, input: UpdateCustomerToolInput): Promise<ToolPreview> {
     const parsed = parseCustomerChanges(input.changes);
     const current = await requireCustomer(ctx, input.customerId);
