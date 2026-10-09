@@ -13,6 +13,11 @@ export function getAiProvider(): AIProvider {
   return provider;
 }
 
+/** Whether a provider can be used at all (an API key is set, or a test provider was injected). */
+export function aiProviderAvailable(): boolean {
+  return provider !== undefined || Boolean(getAiConfig().apiKey);
+}
+
 /** Test hook: swap the provider (or pass undefined to reset). */
 export function setAiProviderForTesting(next: AIProvider | undefined): void {
   provider = next;

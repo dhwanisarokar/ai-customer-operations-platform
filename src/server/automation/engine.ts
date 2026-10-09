@@ -6,8 +6,8 @@ import { automationsRepository } from "@/server/repositories/automations";
 import { actionSchema } from "./definition";
 import { conditionsSchema, evaluateConditions, sanitizeEventData } from "./conditions";
 import { getTrigger } from "./triggers";
+import { processQueueJob } from "@/server/jobs";
 import { ensureInlineWorker, getAutomationQueue, type AutomationQueue } from "./queue";
-import { processAutomationJob } from "./runner";
 import { z } from "zod";
 
 const log = createLogger("automation.engine");
@@ -91,7 +91,7 @@ export async function dispatchDomainEvent(
 
     try {
       const queue = deps.queue ?? getAutomationQueue();
-      if (!deps.queue) await ensureInlineWorker(processAutomationJob);
+      if (!deps.queue) await ensureInlineWorker(processQueueJob);
       await queue.enqueue({ executionId: execution.id, organizationId: event.organizationId });
       result.queued++;
     } catch (error) {

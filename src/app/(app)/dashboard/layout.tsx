@@ -4,11 +4,13 @@ import { QueryProvider } from "@/lib/query/query-provider";
 import { getActiveOrganizationId } from "@/server/auth/page-context";
 import { DashboardNav } from "@/components/shared/dashboard-nav";
 import { MobileNav } from "@/components/shared/mobile-nav";
+import { InboxRealtime } from "@/features/conversations/hooks/use-inbox-realtime";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const organizationId = await getActiveOrganizationId();
   return (
     <QueryProvider organizationId={organizationId}>
+      <InboxRealtime />
       <div className="flex h-dvh flex-col">
         <header className="border-border bg-card relative shrink-0 border-b">
           <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-6">

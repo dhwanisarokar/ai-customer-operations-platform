@@ -30,6 +30,11 @@ const serverSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.enum(["bullmq", "memory"]).optional(),
   ),
+  // Realtime fan-out between instances. Default: Redis when REDIS_URL is set; "memory" = this process only.
+  REALTIME_DRIVER: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["redis", "memory"]).optional(),
+  ),
   RAG_MIN_SIMILARITY: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.coerce.number().min(0).max(1).optional(),

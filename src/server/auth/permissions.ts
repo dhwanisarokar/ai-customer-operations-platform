@@ -29,6 +29,8 @@ export const PERMISSIONS = [
   "update_automations",
   "delete_automations",
   "execute_automations",
+  "manage_widget",
+  "change_handling_mode",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -67,6 +69,10 @@ const ADMIN_PERMISSIONS: readonly Permission[] = [
   "update_automations",
   "delete_automations",
   "execute_automations",
+  "manage_widget",
+  // Letting the customer-facing AI answer a conversation (or not) is an organization-level choice.
+  // Members still take over a conversation by claiming it or replying (which switches it to HUMAN).
+  "change_handling_mode",
 ];
 const OWNER_PERMISSIONS: readonly Permission[] = [
   ...ADMIN_PERMISSIONS,

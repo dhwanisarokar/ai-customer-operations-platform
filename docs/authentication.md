@@ -67,3 +67,5 @@ membership, and an invalid or foreign id silently falls back to the user's first
 
 See `.env.example`: `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and the sign-in/up URL
 variables. Create a Clerk application and copy its development keys into `.env`.
+
+The public chat widget is deliberately outside Clerk (route group and middleware matcher): see [widget](widget.md#isolation-from-clerk).

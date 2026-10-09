@@ -24,7 +24,11 @@ import { useMarkConversationRead, useMessageOutbox } from "../hooks/mutations";
 import { useConversation, useConversationEvents, useConversationMessages } from "../hooks/queries";
 import { AiApprovalCards } from "./ai-approval-cards";
 import { AskAiButton } from "./ask-ai-button";
-import { ConversationPriorityBadge, ConversationStatusBadge } from "./conversation-badges";
+import {
+  ConversationOriginBadges,
+  ConversationPriorityBadge,
+  ConversationStatusBadge,
+} from "./conversation-badges";
 import { ConversationControls } from "./conversation-controls";
 import { ConversationTimeline, type TimelineMessage } from "./conversation-timeline";
 import { MessageComposer } from "./message-composer";
@@ -41,7 +45,7 @@ type Props = {
   };
   currentUserId: string;
   /** UI hints computed by the server. The API enforces every permission regardless. */
-  can: { update: boolean; assign: boolean; send: boolean };
+  can: { update: boolean; assign: boolean; send: boolean; handling?: boolean };
   /** Closes the pane (small screens). */
   closeHref: string;
 };
@@ -222,6 +226,10 @@ export function ConversationPane({
           <div className="flex shrink-0 items-center gap-2">
             <ConversationStatusBadge status={conversation.status} />
             <ConversationPriorityBadge priority={conversation.priority} showNormal />
+            <ConversationOriginBadges
+              channel={conversation.channel}
+              humanRequestedAt={conversation.humanRequestedAt}
+            />
             <Link
               href={closeHref}
               className={buttonVariants({ variant: "outline", size: "sm" }) + " md:hidden"}
@@ -247,6 +255,7 @@ export function ConversationPane({
             members={members}
             canUpdate={can.update}
             canAssignOthers={can.assign}
+            canChangeHandling={can.handling ?? false}
           />
         </div>
       </header>

@@ -348,3 +348,25 @@ organization's id is `404`.
 Create/update body: `{ name, description?, enabled?, trigger, conditions: [{ field, operator, value? }],
 actions: [{ type, input }] }`. Validation errors: `400 { error: { code: "validation_error", details: {
 problems: string[] } } }`.
+
+## Web chat (Phase 7)
+
+Public visitor endpoints (`/api/widget/*`, bearer visitor token, rate limited) are documented in
+[widget.md](widget.md). Staff endpoints:
+
+| Endpoint                   | Permission         | Notes                                                                             |
+| -------------------------- | ------------------ | --------------------------------------------------------------------------------- |
+| `GET /api/widget-settings` | manage_widget      | `{ settings }`; creates disabled settings with a public key on first use          |
+| `PUT /api/widget-settings` | manage_widget      | `{ enabled, displayName, welcomeMessage, accentColor, allowedOrigins }` (strict)  |
+| `GET /api/realtime/inbox`  | view_conversations | `text/event-stream` for the caller's organization; see [realtime.md](realtime.md) |
+
+Conversations now include `channel` (`IN_APP` or `WEB_CHAT`) and `humanRequestedAt`; the list accepts
+`channel=WEB_CHAT`.
+
+## Handling mode (Phase 7 follow-up)
+
+| Endpoint                               | Permission           | Notes                                                                                                                                                                                |
+| -------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /api/conversations/:id/handling` | change_handling_mode | `{ mode: "AI" or "HUMAN" }` (strict). Returns `{ conversation }`. 409 when AI is requested for a non-web-chat conversation or customer AI is disabled; 404 for another organization. |
+
+Conversations now include `handlingMode`.

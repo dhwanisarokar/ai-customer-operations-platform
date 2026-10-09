@@ -24,3 +24,19 @@ export function ConversationPriorityBadge({
   if (priority === "NORMAL" && !showNormal) return null;
   return <Badge variant={PRIORITY_VARIANT[priority]}>{priorityLabel(priority)}</Badge>;
 }
+
+/** Where the conversation came from, and whether the visitor asked for a person (web chat handoff). */
+export function ConversationOriginBadges({
+  channel,
+  humanRequestedAt,
+}: {
+  channel: string;
+  humanRequestedAt: string | Date | null;
+}) {
+  return (
+    <>
+      {humanRequestedAt ? <Badge variant="destructive">Wants a person</Badge> : null}
+      {channel === "WEB_CHAT" ? <Badge variant="secondary">Web chat</Badge> : null}
+    </>
+  );
+}

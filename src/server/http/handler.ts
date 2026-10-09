@@ -36,6 +36,7 @@ export function apiHandler<P = Record<string, never>>(
         log[level]({ requestId, status: error.status, code: error.code, path: pathOf(request) });
         return NextResponse.json(errorBody(error.code, error.message, requestId, error.details), {
           status: error.status,
+          headers: (error as AppError & { headers?: Record<string, string> }).headers,
         });
       }
       log.error({ requestId, err: error, path: pathOf(request) }, "unhandled API error");

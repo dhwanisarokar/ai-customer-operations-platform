@@ -10,7 +10,7 @@ Organization
 Code map: `src/features/customers` (schemas, normalization, list-URL helpers, UI components),
 `src/server/services/customer*.ts` (rules + transactions), `src/server/repositories/customer*.ts`,
 `tags.ts` (org-scoped queries), `src/app/api/customers|tags` (thin routes),
-`src/app/dashboard/customers` (pages).
+`src/app/(app)/dashboard/customers` (pages).
 
 ## Data model
 

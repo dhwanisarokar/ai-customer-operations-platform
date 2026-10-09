@@ -1,6 +1,7 @@
 import { getDb, type Db } from "@/db/client";
 import type {
   ConversationChannel,
+  ConversationHandlingMode,
   ConversationPriority,
   ConversationStatus,
   MessageSenderType,
@@ -28,6 +29,8 @@ function conversationSelect(userId: string) {
     lastMessagePreview: true,
     lastMessageSenderType: true,
     lastCustomerMessageAt: true,
+    humanRequestedAt: true,
+    handlingMode: true,
     createdAt: true,
     updatedAt: true,
     closedAt: true,
@@ -67,6 +70,10 @@ export type ConversationDto = {
   lastMessageSenderType: MessageSenderType | null;
   /** True when the customer wrote something this member has not opened yet. */
   unread: boolean;
+  /** Set while a web chat visitor is waiting for a person (cleared when someone is assigned). */
+  humanRequestedAt: Date | null;
+  /** Who may answer the visitor of a web chat: the customer-facing AI or only people. */
+  handlingMode: ConversationHandlingMode;
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -93,6 +100,8 @@ export function toConversationDto(row: Row): ConversationDto {
     lastMessageSenderType: row.lastMessageSenderType,
     unread:
       row.lastCustomerMessageAt !== null && (readAt === null || row.lastCustomerMessageAt > readAt),
+    humanRequestedAt: row.humanRequestedAt,
+    handlingMode: row.handlingMode,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     closedAt: row.closedAt,
@@ -106,6 +115,7 @@ export type ConversationState = {
   status: ConversationStatus;
   priority: ConversationPriority;
   assignedToUserId: string | null;
+  handlingMode: ConversationHandlingMode;
 };
 
 const stateSelect = {
@@ -115,6 +125,7 @@ const stateSelect = {
   status: true,
   priority: true,
   assignedToUserId: true,
+  handlingMode: true,
 } as const;
 
 export type NewConversation = {
@@ -126,6 +137,10 @@ export type NewConversation = {
   lastMessagePreview: string | null;
   lastMessageSenderType: MessageSenderType | null;
   lastCustomerMessageAt: Date | null;
+  /** Web chat only: the visitor session that owns the conversation. */
+  visitorSessionId?: string | null;
+  /** Defaults to HUMAN. Web chat starts in AI mode when customer AI is enabled for the organization. */
+  handlingMode?: ConversationHandlingMode;
 };
 
 export type ConversationChanges = Partial<{
@@ -138,6 +153,8 @@ export type ConversationChanges = Partial<{
   lastMessagePreview: string | null;
   lastMessageSenderType: MessageSenderType | null;
   lastCustomerMessageAt: Date;
+  humanRequestedAt: Date | null;
+  handlingMode: ConversationHandlingMode;
 }>;
 
 export const conversationsRepository = {
@@ -166,6 +183,34 @@ export const conversationsRepository = {
       select: conversationSelect(userId),
     });
     return row ? toConversationDto(row) : null;
+  },
+
+  /** The visitor session that owns a web chat conversation (null for staff-created ones). */
+  async visitorSessionIdOf(
+    organizationId: string,
+    id: string,
+    db: Db = getDb(),
+  ): Promise<string | null> {
+    const row = await db.conversation.findUnique({
+      where: { id_organizationId: { id, organizationId } },
+      select: { visitorSessionId: true },
+    });
+    return row?.visitorSessionId ?? null;
+  },
+
+  /**
+   * The atomic gate for an AI reply, called FIRST in the transaction that stores it. It is one UPDATE
+   * with the eligibility in its WHERE (AI mode, not resolved): PostgreSQL takes the row lock, and if a
+   * concurrent change (an agent switching to HUMAN, assigning, resolving) committed first, the
+   * predicate is re-evaluated on the new row and matches nothing. True = this transaction now holds the
+   * row and may insert the reply; any later mode change waits for it.
+   */
+  async claimForAiReply(organizationId: string, id: string, db: Db = getDb()): Promise<boolean> {
+    const result = await db.conversation.updateMany({
+      where: { id, organizationId, handlingMode: "AI", status: { not: "RESOLVED" } },
+      data: { updatedAt: new Date() },
+    });
+    return result.count === 1;
   },
 
   /** Lightweight state used by write paths (no joins). */

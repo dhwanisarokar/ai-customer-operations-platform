@@ -27,6 +27,8 @@ export type AiMessageInfo = {
 export type MessageRecord = Omit<MessageRow, "metadata"> & { ai: AiMessageInfo | null };
 
 export type NewMessage = {
+  /** Client-generated id of a widget message (idempotent retries). */
+  clientMessageId?: string | null;
   senderType: MessageSenderType;
   senderUserId: string | null;
   messageType: MessageType;
@@ -87,6 +89,20 @@ export const conversationMessagesRepository = {
       select: messageSelect,
     });
     return toRecord(row);
+  },
+
+  /** An earlier message of this conversation with the same client id (idempotent retries). */
+  async findByClientMessageId(
+    organizationId: string,
+    conversationId: string,
+    clientMessageId: string,
+    db: Db = getDb(),
+  ): Promise<MessageRecord | null> {
+    const row = await db.message.findFirst({
+      where: { organizationId, conversationId, clientMessageId },
+      select: messageSelect,
+    });
+    return row ? toRecord(row) : null;
   },
 
   /** True when `messageId` exists in this conversation (validates pagination cursors). */

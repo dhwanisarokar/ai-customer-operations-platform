@@ -56,6 +56,8 @@ model Organization {
   aiToolAudits       AiToolAudit[]
   automations        Automation[]
   automationRuns     AutomationExecution[]
+  widgetSettings     WidgetSettings?
+  visitorSessions    VisitorSession[]
 
   @@map("organizations")
 }
@@ -100,6 +102,8 @@ enum ActivityActorType {
   USER
   SYSTEM
   AI
+  // A website visitor (widget session); actorId is the visitor session id.
+  CUSTOMER
 }
 
 // Tenant-owned. Child tables reference (id, organizationId) with composite foreign keys, so the
@@ -128,11 +132,12 @@ model Customer {
   updatedAt      DateTime       @default(now())
   archivedAt     DateTime?
 
-  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  tags          CustomerTag[]
-  activities    CustomerActivity[]
-  notes         CustomerNote[]
-  conversations Conversation[]
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tags            CustomerTag[]
+  activities      CustomerActivity[]
+  notes           CustomerNote[]
+  conversations   Conversation[]
+  visitorSessions VisitorSession[]
 
   // Business rules are tenant-aware: the same email/externalId may exist in different organizations.
   @@unique([organizationId, email])
@@ -237,6 +242,8 @@ enum ConversationPriority {
 // Only IN_APP exists today. Adding EMAIL, WHATSAPP, ... later is an additive enum migration.
 enum ConversationChannel {
   IN_APP
+  // A visitor of an organization's embedded web chat widget (Phase 7).
+  WEB_CHAT
 }
 
 enum MessageSenderType {
@@ -261,6 +268,18 @@ enum ConversationEventType {
   UNASSIGNED
   MESSAGE_SENT
   INTERNAL_NOTE_ADDED
+  HUMAN_REQUESTED
+  // Automatic customer-facing AI replies switched on/off for the conversation (AI <-> HUMAN).
+  HANDLING_MODE_CHANGED
+}
+
+// Who may answer the visitor of a web chat conversation: the customer-facing AI (AI) or only people
+// (HUMAN). Distinct from status (lifecycle), assignee (owner) and humanRequestedAt (the visitor asked
+// for a person). Enforced server-side before an AI job is queued, when it runs, and atomically when the
+// reply is stored.
+enum ConversationHandlingMode {
+  AI
+  HUMAN
 }
 
 // Tenant-owned. Composite foreign keys keep it in one organization:
@@ -269,14 +288,20 @@ enum ConversationEventType {
 //    be a member of the same organization. NO ACTION (not SET NULL): removing a member first
 //    unassigns their conversations in the application (see removeMember).
 model Conversation {
-  id               String               @id @default(uuid()) @db.Uuid
-  organizationId   String               @db.Uuid
-  customerId       String               @db.Uuid
+  id               String                   @id @default(uuid()) @db.Uuid
+  organizationId   String                   @db.Uuid
+  customerId       String                   @db.Uuid
   subject          String
-  status           ConversationStatus   @default(OPEN)
-  priority         ConversationPriority @default(NORMAL)
-  channel          ConversationChannel  @default(IN_APP)
-  assignedToUserId String?              @db.Uuid
+  status           ConversationStatus       @default(OPEN)
+  priority         ConversationPriority     @default(NORMAL)
+  channel          ConversationChannel      @default(IN_APP)
+  handlingMode     ConversationHandlingMode @default(HUMAN)
+  assignedToUserId String?                  @db.Uuid
+  // WEB_CHAT conversations belong to exactly one visitor session. A conversation id alone never
+  // authorizes a visitor: the session must match this column.
+  visitorSessionId String?                  @db.Uuid
+  // Set when the visitor asked for a person; cleared when someone is assigned (the "handoff").
+  humanRequestedAt DateTime?
 
   // Denormalized from the newest customer-facing message so the inbox list needs no message join.
   // Internal notes never touch these. Maintained in the same transaction as the message insert.
@@ -290,15 +315,18 @@ model Conversation {
   updatedAt DateTime  @default(now())
   closedAt  DateTime?
 
-  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer     Customer                @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  assignee     Membership?             @relation(fields: [assignedToUserId, organizationId], references: [userId, organizationId], onDelete: NoAction)
-  messages     Message[]
-  events       ConversationEvent[]
-  aiApprovals  AiActionApproval[]
-  readStates   ConversationReadState[]
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer       Customer                @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  assignee       Membership?             @relation(fields: [assignedToUserId, organizationId], references: [userId, organizationId], onDelete: NoAction)
+  visitorSession VisitorSession?         @relation(fields: [visitorSessionId, organizationId], references: [id, organizationId], onDelete: NoAction)
+  messages       Message[]
+  events         ConversationEvent[]
+  aiApprovals    AiActionApproval[]
+  readStates     ConversationReadState[]
 
   @@unique([id, organizationId])
+  // A visitor's own conversations, newest first.
+  @@index([organizationId, visitorSessionId, lastMessageAt(sort: Desc)])
   // Inbox tabs: status filter, newest activity first.
   @@index([organizationId, status, lastMessageAt(sort: Desc)])
   // "All" view and default sort.
@@ -313,24 +341,27 @@ model Conversation {
 }
 
 model Message {
-  id             String            @id @default(uuid()) @db.Uuid
-  organizationId String            @db.Uuid
-  conversationId String            @db.Uuid
-  senderType     MessageSenderType
+  id              String            @id @default(uuid()) @db.Uuid
+  organizationId  String            @db.Uuid
+  conversationId  String            @db.Uuid
+  senderType      MessageSenderType
   // Set only for USER senders. Nullable + SET NULL so history survives user deletion.
-  senderUserId   String?           @db.Uuid
-  messageType    MessageType       @default(MESSAGE)
-  body           String
+  senderUserId    String?           @db.Uuid
+  messageType     MessageType       @default(MESSAGE)
+  body            String
+  // Client-generated id of a widget message: retrying the same send can never create a duplicate.
+  clientMessageId String?
   // AI messages: provider, model, prompt version, sources, usage (see docs/ai-agent.md). Never
   // contains prompts, API keys or other secrets. NULL for human and customer messages.
-  metadata       Json?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @default(now())
+  metadata        Json?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId, organizationId], references: [id, organizationId], onDelete: Cascade)
   sender       User?        @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
 
+  @@unique([conversationId, clientMessageId])
   // Timeline pages of one conversation in chronological order (and the reverse for "latest N").
   @@index([organizationId, conversationId, createdAt, id])
   @@map("messages")
@@ -586,4 +617,58 @@ model AutomationExecution {
   @@index([organizationId, automationId, createdAt(sort: Desc)])
   @@index([organizationId, status])
   @@map("automation_executions")
+}
+
+// ---- Web chat widget (Phase 7) -----------------------------------------------------------------
+
+// One per organization. `publicKey` is the PUBLIC identifier embedded in the website snippet: it
+// selects the organization for anonymous visitors but is not a secret and grants nothing by itself
+// (a visitor still needs a session). The organization is always derived from it on the server.
+model WidgetSettings {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @unique @db.Uuid
+  publicKey        String   @unique
+  enabled          Boolean  @default(false)
+  displayName      String
+  welcomeMessage   String
+  // #rrggbb, or null to use the application's theme color.
+  accentColor      String?
+  // Websites allowed to frame the widget (CSP frame-ancestors). Empty = any website.
+  allowedOrigins   String[] @default([])
+  // Customer-facing AI: when true, visitor messages get an automatic, read-only AI answer (until a
+  // person takes over). Off by default; an organization opts in.
+  aiRepliesEnabled Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("widget_settings")
+}
+
+// An anonymous visitor of ONE organization's widget. NOT a user and never a member: it can only
+// reach its own conversations through the dedicated /api/widget API. The bearer token is random,
+// shown to the browser once and stored only as a SHA-256 hash.
+model VisitorSession {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  // Resolved by the server (never chosen by the client): a placeholder customer for an anonymous
+  // visitor, or the organization's customer with the email the visitor gave.
+  customerId     String?   @db.Uuid
+  tokenHash      String    @unique
+  visitorName    String?
+  visitorEmail   String?
+  createdAt      DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  expiresAt      DateTime
+  revokedAt      DateTime?
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer      Customer?      @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: NoAction)
+  conversations Conversation[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, customerId])
+  @@index([organizationId, expiresAt])
+  @@map("visitor_sessions")
 }

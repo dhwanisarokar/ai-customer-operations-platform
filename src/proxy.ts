@@ -8,10 +8,17 @@ export default clerkMiddleware(async (auth, request) => {
   if (isProtectedPage(request)) await auth.protect();
 });
 
+/**
+ * Paths Clerk must not touch: the public chat widget page and its visitor API. They authenticate with
+ * a widget key and a visitor session instead, and run in visitors' browsers inside third-party
+ * iframes, where Clerk's development handshake redirects loop. Internal routes (including
+ * /api/widget-settings, which is staff-only) are NOT excluded: only the exact `/widget/` and
+ * `/api/widget/` prefixes.
+ */
 export const config = {
   matcher: [
-    // Skip Next.js internals and static files.
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
-    "/(api|trpc)(.*)",
+    // Skip Next.js internals, the public widget and static files.
+    "/((?!_next|widget/|api/widget/|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/(api(?!/widget/)|trpc)(.*)",
   ],
 };

@@ -49,3 +49,11 @@ src/
   idempotency) and a BullMQ worker (`npm run worker`) runs the actions through the existing services with the
   automation creator's current permissions. PostgreSQL is the source of truth; Redis only carries execution ids.
 - `GET /api/health` — returns 200 `{status:"ok"}` or 503 `{status:"degraded"}` depending on DB reachability.
+- Web chat widget and realtime: [widget](widget.md), [realtime](realtime.md). Visitors are anonymous
+  sessions (not users or members) that reach only a dedicated public API (`/api/widget/*`); their chats
+  are normal conversations (`WEB_CHAT`) written through the same services via an `Actor` abstraction.
+  Realtime is SSE hints published after commit (Redis pub/sub between instances); clients refetch from the
+  authorized API. See ADR [011](decisions/011-visitor-sessions-and-sse-realtime.md).
+- Customer-facing AI replies (web chat): [customer-ai](customer-ai.md), ADR
+  [012](decisions/012-customer-facing-ai-read-only.md). A read-only path (no tools, no customer record)
+  on the existing queue; the internal draft workflow is unchanged.

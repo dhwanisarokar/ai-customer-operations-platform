@@ -1,5 +1,5 @@
 /**
- * Automation worker: consumes the BullMQ queue and runs automation executions.
+ * Automation worker: consumes the BullMQ queue: automation executions and customer-facing AI replies.
  *
  *   npm run worker
  *
@@ -10,7 +10,7 @@
 import "dotenv/config";
 import { createLogger } from "@/lib/logger";
 import { getAutomationQueue } from "@/server/automation/queue";
-import { processAutomationJob } from "@/server/automation/runner";
+import { processQueueJob } from "@/server/jobs";
 
 const log = createLogger("automation.worker");
 
@@ -21,7 +21,7 @@ async function main() {
       "The worker needs Redis. Set REDIS_URL (and leave AUTOMATION_QUEUE_DRIVER unset or 'bullmq').",
     );
   }
-  const worker = await queue.startWorker(processAutomationJob);
+  const worker = await queue.startWorker(processQueueJob);
   log.info("automation worker started");
 
   let stopping = false;

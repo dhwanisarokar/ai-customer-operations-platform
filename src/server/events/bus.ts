@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@/lib/logger";
 import type { TriggerName } from "@/server/automation/catalog";
+import { publishForDomainEvent } from "@/server/realtime/domain";
 import type { DomainEvent, EventDataMap } from "./types";
 
 const log = createLogger("events");
@@ -35,6 +36,9 @@ export async function emitDomainEvent<T extends TriggerName>(input: {
     data: input.data,
     causedByAutomation: automationOrigin.getStore() !== undefined,
   };
+  // Realtime hints are best effort and must not delay the request: the database is already
+  // committed, and clients reconcile by refetching. (Automations below are awaited on purpose.)
+  void publishForDomainEvent(event);
   await dispatchEvent(event);
   return event;
 }

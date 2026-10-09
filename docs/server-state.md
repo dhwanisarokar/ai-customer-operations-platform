@@ -21,7 +21,7 @@ duplicate the URL or the query cache. Add one only when such state appears.
 - `src/lib/query/` — `query-client.ts` (defaults, stale times), `query-provider.tsx`, `query-keys.ts`,
   `optimistic.ts`, `outbox.ts`, `serialize.ts`.
 - `src/features/<feature>/api/` (types + request builders) and `hooks/{queries,mutations}.ts`.
-- `src/app/dashboard/layout.tsx` is an async server layout that mounts `QueryProvider`.
+- `src/app/(app)/dashboard/layout.tsx` is an async server layout that mounts `QueryProvider`.
 
 ## Query keys
 

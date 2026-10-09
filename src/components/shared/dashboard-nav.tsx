@@ -10,6 +10,7 @@ export const DASHBOARD_LINKS = [
   { href: "/dashboard/customers", label: "Customers", exact: false },
   { href: "/dashboard/knowledge", label: "Knowledge", exact: false },
   { href: "/dashboard/automations", label: "Automations", exact: false },
+  { href: "/dashboard/widget", label: "Web chat", exact: false },
 ] as const;
 
 export function isActiveLink(pathname: string, href: string, exact: boolean) {

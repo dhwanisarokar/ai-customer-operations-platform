@@ -206,6 +206,28 @@ export function useMarkConversationRead() {
   });
 }
 
+/**
+ * Switch who answers a web chat conversation (AI / HUMAN). Not optimistic: enabling AI can be refused
+ * (organization setting, channel), so the server's conversation becomes the cached value. The events
+ * timeline records the change, so it is refetched too.
+ */
+export function useSetHandlingMode() {
+  const queryClient = useQueryClient();
+  const org = useOrganizationScope();
+  return useMutation({
+    mutationFn: ({ conversationId, mode }: { conversationId: string; mode: "AI" | "HUMAN" }) =>
+      fetchJson<{ conversation: ConversationJson }>(
+        `/api/conversations/${conversationId}/handling`,
+        { method: "POST", body: { mode } },
+      ),
+    onSuccess: (data, { conversationId }) => {
+      patchConversationCaches(queryClient, org, conversationId, () => data.conversation);
+      void queryClient.invalidateQueries({ queryKey: conversationsKeys.item(org, conversationId) });
+      void queryClient.invalidateQueries({ queryKey: conversationsKeys.lists(org) });
+    },
+  });
+}
+
 type CreateConversationVariables = {
   customerId: string;
   subject: string;

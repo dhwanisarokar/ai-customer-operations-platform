@@ -23,6 +23,8 @@ export const conversation = (overrides: Partial<ConversationJson> = {}): Convers
   lastMessagePreview: "Hello",
   lastMessageSenderType: "CUSTOMER",
   unread: true,
+  humanRequestedAt: null,
+  handlingMode: "HUMAN",
   createdAt: "2026-01-01T09:00:00.000Z",
   updatedAt: "2026-01-01T10:00:00.000Z",
   closedAt: null,

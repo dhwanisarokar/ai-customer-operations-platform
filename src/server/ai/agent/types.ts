@@ -14,6 +14,12 @@ export type AgentMessage = {
 
 export type AgentInput = {
   organizationId: string;
+  /**
+   * "draft" (default): a suggestion a human reviews (internal Inbox). "customer": the reply is sent to
+   * the visitor automatically, so it uses the customer-facing prompt, receives NO customer record
+   * (a visitor's identity is unverified) and may only answer from published knowledge.
+   */
+  mode?: "draft" | "customer";
   customer: AgentCustomerContext;
   /** Bounded, customer-facing history, oldest first. Internal notes are never included. */
   messages: AgentMessage[];

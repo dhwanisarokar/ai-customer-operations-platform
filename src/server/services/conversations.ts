@@ -10,6 +10,7 @@ import { createLogger } from "@/lib/logger";
 import type { OrganizationContext } from "@/server/auth/context";
 import { ConflictError, ForbiddenError, NotFoundError } from "@/server/errors";
 import { timestampSequence } from "./clock";
+import { actorEvent, actorUserId, NO_USER_ID, type Actor } from "./actors";
 import { toPage, type Page } from "@/server/http/pagination";
 import { conversationEventsRepository } from "@/server/repositories/conversation-events";
 import { conversationMessagesRepository } from "@/server/repositories/conversation-messages";
@@ -20,12 +21,12 @@ import {
   type ConversationState,
 } from "@/server/repositories/conversations";
 import { customersRepository } from "@/server/repositories/customers";
-import type { Prisma } from "@/generated/prisma/client";
+import type { ConversationChannel, Prisma } from "@/generated/prisma/client";
 
 const log = createLogger("conversations");
 
 export function eventActor(ctx: OrganizationContext) {
-  return { actorType: "USER" as const, actorId: ctx.user.id };
+  return actorEvent({ kind: "user", userId: ctx.user.id });
 }
 
 /**
@@ -47,10 +48,33 @@ export async function createConversation(
   input: CreateConversationInput,
 ): Promise<ConversationDto> {
   ctx.require("create_conversations");
-  const organizationId = ctx.organization.id;
+  return createConversationCore({
+    organizationId: ctx.organization.id,
+    actor: { kind: "user", userId: ctx.user.id },
+    input,
+  });
+}
+
+/**
+ * Creates a conversation (and its optional first message) for staff or for a web chat visitor.
+ * Authorization is the caller's job; the customer must belong to `organizationId` (looked up with
+ * it, and enforced again by the composite foreign key). A visitor session id is recorded on the
+ * conversation so that only that session can ever read it.
+ */
+export async function createConversationCore(params: {
+  organizationId: string;
+  actor: Actor;
+  input: Omit<CreateConversationInput, "channel"> & { channel: ConversationChannel };
+  visitorSessionId?: string | null;
+  clientMessageId?: string;
+  /** Web chat only: AI when customer AI is enabled for the organization, otherwise HUMAN (default). */
+  handlingMode?: "AI" | "HUMAN";
+}): Promise<ConversationDto> {
+  const { organizationId, actor, input, visitorSessionId, clientMessageId, handlingMode } = params;
+  const userId = actorUserId(actor);
 
   const conversation = await transaction(async (tx) => {
-    // The customer must belong to the caller's organization (the composite FK also guarantees it).
+    // The customer must belong to the organization (the composite FK also guarantees it).
     const customer = await customersRepository.findById(organizationId, input.customerId, tx);
     if (!customer) throw new NotFoundError("Customer not found");
     if (customer.status === "ARCHIVED") {
@@ -74,8 +98,10 @@ export async function createConversation(
         lastMessagePreview: first ? previewOf(first.body) : null,
         lastMessageSenderType: first ? (fromCustomer ? "CUSTOMER" : "USER") : null,
         lastCustomerMessageAt: fromCustomer ? messageAt : null,
+        visitorSessionId: visitorSessionId ?? null,
+        handlingMode: handlingMode ?? "HUMAN",
       },
-      ctx.user.id,
+      userId ?? NO_USER_ID,
       tx,
     );
 
@@ -86,7 +112,7 @@ export async function createConversation(
         type: "CONVERSATION_CREATED",
         metadata: { customerId: customer.id, priority: input.priority, channel: input.channel },
         createdAt,
-        ...eventActor(ctx),
+        ...actorEvent(actor),
       },
       tx,
     );
@@ -97,9 +123,10 @@ export async function createConversation(
         created.id,
         {
           senderType: fromCustomer ? "CUSTOMER" : "USER",
-          senderUserId: fromCustomer ? null : ctx.user.id,
+          senderUserId: fromCustomer ? null : userId,
           messageType: "MESSAGE",
           body: first.body,
+          clientMessageId: clientMessageId ?? null,
           createdAt: messageAt,
         },
         tx,
@@ -111,24 +138,30 @@ export async function createConversation(
           type: "MESSAGE_SENT",
           metadata: { messageId: message.id, senderType: message.senderType },
           createdAt: next(),
-          ...eventActor(ctx),
+          ...actorEvent(actor),
         },
         tx,
       );
     }
 
-    // The creator has just seen everything in it.
-    await conversationsRepository.markRead(organizationId, created.id, ctx.user.id, next(), tx);
-    return (await conversationsRepository.findById(organizationId, created.id, ctx.user.id, tx))!;
+    // A staff creator has just seen everything in it.
+    if (userId)
+      await conversationsRepository.markRead(organizationId, created.id, userId, next(), tx);
+    return (await conversationsRepository.findById(
+      organizationId,
+      created.id,
+      userId ?? NO_USER_ID,
+      tx,
+    ))!;
   });
 
   log.info(
-    { organizationId, conversationId: conversation.id, actorId: ctx.user.id },
+    { organizationId, conversationId: conversation.id, actor: actor.kind },
     "conversation created",
   );
   await emitDomainEvent({
     organizationId,
-    actorUserId: ctx.user.id,
+    actorUserId: userId,
     type: "conversation.created",
     data: {
       conversationId: conversation.id,
@@ -309,9 +342,24 @@ export async function assignConversation(
       await conversationsRepository.update(
         organizationId,
         conversationId,
-        { assignedToUserId: assigneeId },
+        // Assigning a person answers a visitor's request for one, and a person now handles the
+        // conversation: the customer-facing AI stops (unassigning later does NOT bring it back).
+        { assignedToUserId: assigneeId, humanRequestedAt: null, handlingMode: "HUMAN" },
         tx,
       );
+      if (current.handlingMode === "AI") {
+        await conversationEventsRepository.record(
+          organizationId,
+          conversationId,
+          {
+            type: "HANDLING_MODE_CHANGED",
+            metadata: { from: "AI", to: "HUMAN", reason: "assigned" },
+            createdAt: now,
+            ...eventActor(ctx),
+          },
+          tx,
+        );
+      }
       await conversationEventsRepository.record(
         organizationId,
         conversationId,

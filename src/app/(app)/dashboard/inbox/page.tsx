@@ -200,6 +200,7 @@ async function SelectedConversation({
         update: ctx.can("update_conversations"),
         assign: ctx.can("assign_conversations"),
         send: ctx.can("send_messages"),
+        handling: ctx.can("change_handling_mode"),
       }}
       closeHref={closeHref}
     />

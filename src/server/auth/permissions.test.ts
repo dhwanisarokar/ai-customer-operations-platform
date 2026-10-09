@@ -103,3 +103,15 @@ describe("automation permissions", () => {
     }
   });
 });
+
+describe("web chat widget permissions", () => {
+  it("lets only ADMIN and OWNER manage the widget", () => {
+    expect(hasPermission(Role.MEMBER, "manage_widget")).toBe(false);
+    expect(hasPermission(Role.ADMIN, "manage_widget")).toBe(true);
+    expect(hasPermission(Role.OWNER, "manage_widget")).toBe(true);
+    // Handling mode (AI <-> HUMAN) is an ADMIN/OWNER decision; members take over by claiming or replying.
+    expect(hasPermission(Role.MEMBER, "change_handling_mode")).toBe(false);
+    expect(hasPermission(Role.ADMIN, "change_handling_mode")).toBe(true);
+    expect(hasPermission(Role.OWNER, "change_handling_mode")).toBe(true);
+  });
+});

@@ -52,6 +52,10 @@ export const conversationsKeys = {
   approvals: (org: OrgId, id: string) => [...conversationsKeys.item(org, id), "approvals"] as const,
 };
 
+export const widgetKeys = {
+  settings: (org: OrgId) => [...scope(org), "widget", "settings"] as const,
+};
+
 export const automationsKeys = {
   all: (org: OrgId) => [...scope(org), "automations"] as const,
   lists: (org: OrgId) => [...automationsKeys.all(org), "list"] as const,

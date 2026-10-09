@@ -2,7 +2,11 @@ import Link from "next/link";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ConversationJson } from "../api/types";
-import { ConversationPriorityBadge, ConversationStatusBadge } from "./conversation-badges";
+import {
+  ConversationOriginBadges,
+  ConversationPriorityBadge,
+  ConversationStatusBadge,
+} from "./conversation-badges";
 
 type Props = {
   conversations: ConversationJson[];
@@ -60,6 +64,10 @@ export function ConversationList({ conversations, selectedId, hrefFor }: Props) 
               <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                 <ConversationStatusBadge status={conversation.status} />
                 <ConversationPriorityBadge priority={conversation.priority} />
+                <ConversationOriginBadges
+                  channel={conversation.channel}
+                  humanRequestedAt={conversation.humanRequestedAt}
+                />
                 <span className="text-muted-foreground ml-auto truncate text-xs">
                   {conversation.assignee
                     ? (conversation.assignee.name ?? conversation.assignee.email)

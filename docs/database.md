@@ -141,3 +141,33 @@ search_path.
 - `automation_executions`: one row per (automation, event); unique `(organizationId, automationId, eventId)`
   is the idempotency guarantee; composite FK to `automations`; CHECKs keep finished runs consistent
   (migration `automation_check_constraints`). See [automations.md](automations.md).
+
+## Web chat (Phase 7)
+
+All changes are **additive** (migrations `web_chat_widget`, `web_chat_check_constraints`).
+
+- `widget_settings`: one row per organization (`publicKey` unique, `enabled` default false, display name,
+  welcome message, optional accent color, `allowedOrigins`). CHECKs: non-blank name, welcome <= 500,
+  `#rrggbb` color, key length.
+- `visitor_sessions`: `tokenHash` unique (the token itself is never stored), `expiresAt`, `revokedAt`,
+  optional `customerId` (composite FK to `customers`); unique `(id, organizationId)` for tenant-consistent
+  references. CHECK: expiry after creation.
+- `conversations`: `visitorSessionId` (composite FK to `visitor_sessions`), `humanRequestedAt`; CHECK that
+  only `WEB_CHAT` conversations have a visitor session. Enum values added: `ConversationChannel.WEB_CHAT`,
+  `ActivityActorType.CUSTOMER`, `ConversationEventType.HUMAN_REQUESTED`.
+- `messages`: `clientMessageId` with unique `(conversationId, clientMessageId)` (idempotent sends).
+
+Apply with `npx prisma migrate deploy` (never `migrate reset` on a shared database).
+
+## Customer-facing AI (Phase 7 follow-up)
+
+Migration `widget_ai_replies` (additive): `widget_settings.aiRepliesEnabled boolean not null default false`.
+AI replies reuse `messages` (`senderType = AI_AGENT`); the one-reply-per-message guarantee uses the existing
+unique `(conversationId, clientMessageId)` with client id `ai-reply-<messageId>`.
+
+## Handling mode (Phase 7 follow-up)
+
+Migration `conversation_handling_mode` (additive): enum `ConversationHandlingMode (AI, HUMAN)`,
+`conversations.handlingMode NOT NULL DEFAULT 'HUMAN'`, enum value `ConversationEventType.HANDLING_MODE_CHANGED`.
+Web chats that were being answered by the AI (customer AI enabled for the organization, no handoff request, no
+assignee) are backfilled to `AI` so behavior is preserved. See [customer-ai](customer-ai.md).

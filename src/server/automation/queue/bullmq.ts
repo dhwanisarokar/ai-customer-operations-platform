@@ -6,7 +6,7 @@ import {
   MAX_ATTEMPTS,
   QUEUE_NAME,
   UnrecoverableJobError,
-  type AutomationJob,
+  type QueueJob,
   type AutomationQueue,
   type JobHandler,
   type WorkerHandle,
@@ -50,7 +50,7 @@ export class BullMqAutomationQueue implements AutomationQueue {
     return this.queue;
   }
 
-  async enqueue(job: AutomationJob): Promise<void> {
+  async enqueue(job: QueueJob): Promise<void> {
     await this.getQueue().add("run", job, { jobId: job.executionId });
   }
 
@@ -58,7 +58,7 @@ export class BullMqAutomationQueue implements AutomationQueue {
     // Workers need blocking commands, so maxRetriesPerRequest must be null.
     const connection = new IORedis(this.redisUrl, { maxRetriesPerRequest: null });
     this.workerConnections.push(connection);
-    const worker = new Worker<AutomationJob>(
+    const worker = new Worker<QueueJob>(
       QUEUE_NAME,
       async (job) => {
         try {

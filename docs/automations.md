@@ -196,3 +196,7 @@ npm run worker                      # in a second terminal: consumes the queue
 - Events are emitted in the request that caused them (best effort): a crash between commit and emit
   loses that event (no outbox table yet).
 - History is paged at 50 runs.
+
+## Shared queue: customer-facing AI replies
+
+The same BullMQ queue and `npm run worker` process also run the web chat assistant's jobs (`kind: "customer-ai"`, see [customer-ai](customer-ai.md)). The worker therefore needs the AI provider configuration (`GEMINI_API_KEY`) in addition to `DATABASE_URL` and `REDIS_URL`.

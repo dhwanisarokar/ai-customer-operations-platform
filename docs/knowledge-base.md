@@ -13,7 +13,7 @@ Organization
 Code map: `src/features/knowledge` (chunking, schemas, list params, UI),
 `src/server/services/knowledge*.ts` (lifecycle, indexing, retrieval),
 `src/server/repositories/knowledge-*.ts` (queries, the only raw SQL), `src/app/api/knowledge`
-(thin routes), `src/app/dashboard/knowledge` (pages).
+(thin routes), `src/app/(app)/dashboard/knowledge` (pages).
 
 ## Data model
 

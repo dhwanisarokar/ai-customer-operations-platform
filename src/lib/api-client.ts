@@ -45,13 +45,24 @@ const GENERIC_MESSAGE = "Something went wrong. Please try again.";
  */
 export async function fetchJson<T>(
   url: string,
-  options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
+  options: {
+    method?: string;
+    body?: unknown;
+    signal?: AbortSignal;
+    headers?: Record<string, string>;
+  } = {},
 ): Promise<T> {
   let response: Response;
   try {
     response = await fetch(url, {
       method: options.method ?? "GET",
-      headers: options.body === undefined ? undefined : { "content-type": "application/json" },
+      headers:
+        options.body === undefined && !options.headers
+          ? undefined
+          : {
+              ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+              ...options.headers,
+            },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: options.signal,
     });

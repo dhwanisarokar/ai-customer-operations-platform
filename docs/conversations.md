@@ -11,7 +11,7 @@ Organization
 Code map: `src/features/conversations` (schemas, transition rules, inbox URL params, event wording,
 UI components), `src/server/services/conversation*.ts` (rules + transactions),
 `src/server/repositories/conversation*.ts` (org-scoped queries), `src/app/api/conversations`
-(thin routes), `src/app/dashboard/inbox` (pages).
+(thin routes), `src/app/(app)/dashboard/inbox` (pages).
 
 ## Domain model
 

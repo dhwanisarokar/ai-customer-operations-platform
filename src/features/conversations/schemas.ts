@@ -4,7 +4,7 @@ import { booleanParam, csv, paginationSchema } from "@/lib/query-params";
 
 export const CONVERSATION_STATUSES = ["OPEN", "PENDING", "RESOLVED"] as const;
 export const CONVERSATION_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
-export const CONVERSATION_CHANNELS = ["IN_APP"] as const;
+export const CONVERSATION_CHANNELS = ["IN_APP", "WEB_CHAT"] as const;
 
 export type ConversationStatus = (typeof CONVERSATION_STATUSES)[number];
 export type ConversationPriority = (typeof CONVERSATION_PRIORITIES)[number];
@@ -35,7 +35,8 @@ export const createConversationSchema = z
     customerId: z.uuid(),
     subject: subjectSchema,
     priority: z.enum(CONVERSATION_PRIORITIES).default("NORMAL"),
-    channel: z.enum(CONVERSATION_CHANNELS).default("IN_APP"),
+    // Staff create IN_APP conversations; WEB_CHAT ones only come from the visitor widget.
+    channel: z.enum(["IN_APP"]).default("IN_APP"),
     /** Optional first message. `from` says who wrote it: the customer (default) or the agent. */
     initialMessage: z
       .object({ body: bodySchema, from: z.enum(["CUSTOMER", "USER"]).default("CUSTOMER") })
@@ -56,6 +57,10 @@ export const updateConversationSchema = z
 export type UpdateConversationInput = z.output<typeof updateConversationSchema>;
 
 export const assignConversationSchema = z.object({ userId: z.uuid() }).strict();
+
+/** Who answers a web chat conversation: the customer-facing AI or only people. */
+export const HANDLING_MODES = ["AI", "HUMAN"] as const;
+export const handlingModeSchema = z.object({ mode: z.enum(HANDLING_MODES) }).strict();
 
 /**
  * `type` MESSAGE is customer-facing, INTERNAL_NOTE is staff-only. `from` CUSTOMER records a

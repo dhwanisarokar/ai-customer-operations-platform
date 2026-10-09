@@ -1,4 +1,3 @@
-import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -18,12 +17,12 @@ export const metadata: Metadata = {
   description: "AI-powered customer operations for multi-tenant teams.",
 };
 
+// Deliberately free of authentication: the public widget (/widget) shares this layout. Clerk lives in
+// the (app) route group.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <ClerkProvider>
-      <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-        <body className="flex min-h-full flex-col">{children}</body>
-      </html>
-    </ClerkProvider>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+      <body className="flex min-h-full flex-col">{children}</body>
+    </html>
   );
 }

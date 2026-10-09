@@ -2,7 +2,7 @@ import {
   BACKOFF_BASE_MS,
   MAX_ATTEMPTS,
   UnrecoverableJobError,
-  type AutomationJob,
+  type QueueJob,
   type AutomationQueue,
   type JobHandler,
   type WorkerHandle,
@@ -22,7 +22,7 @@ type Options = {
 export class MemoryAutomationQueue implements AutomationQueue {
   readonly driver = "memory" as const;
   private handler: JobHandler | undefined;
-  private readonly waiting: AutomationJob[] = [];
+  private readonly waiting: QueueJob[] = [];
   private readonly known = new Set<string>();
   private active = 0;
   private closed = false;
@@ -35,7 +35,7 @@ export class MemoryAutomationQueue implements AutomationQueue {
     this.maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
   }
 
-  async enqueue(job: AutomationJob): Promise<void> {
+  async enqueue(job: QueueJob): Promise<void> {
     if (this.closed || this.known.has(job.executionId)) return;
     this.known.add(job.executionId);
     this.waiting.push(job);
@@ -74,7 +74,7 @@ export class MemoryAutomationQueue implements AutomationQueue {
     }
   }
 
-  private async run(job: AutomationJob) {
+  private async run(job: QueueJob) {
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       try {
         await this.handler!(job, { attempt, maxAttempts: this.maxAttempts });

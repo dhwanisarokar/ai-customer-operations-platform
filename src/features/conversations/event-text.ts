@@ -58,6 +58,19 @@ export function describeEvent(event: TimelineEvent, names: ReadonlyMap<string, s
       return meta.reason === "member_removed"
         ? `Unassigned from ${who(meta.from)} (left the organization)`
         : `${actor} unassigned the conversation from ${who(meta.from)}`;
+    case "HUMAN_REQUESTED":
+      return event.actorType === "CUSTOMER"
+        ? "The visitor asked to talk to a person"
+        : `${actor} requested a person`;
+    case "HANDLING_MODE_CHANGED": {
+      const to = meta.to === "AI" ? "AI handling" : "human handling";
+      const why: Record<string, string> = {
+        visitor_requested: " (the visitor asked for a person)",
+        assigned: " (conversation assigned)",
+        agent_replied: " (a team member replied)",
+      };
+      return `${event.actorType === "CUSTOMER" ? "The visitor" : actor} switched the conversation to ${to}${why[meta.reason ?? ""] ?? ""}`;
+    }
     default:
       return `${actor} updated the conversation`;
   }

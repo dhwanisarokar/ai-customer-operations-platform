@@ -46,6 +46,7 @@ npm run dev                 # http://localhost:3000, health: /api/health
 - [Customer management](docs/customer-management.md) · [Conversations & inbox](docs/conversations.md)
 - [Knowledge base](docs/knowledge-base.md) · [RAG](docs/rag.md) · [AI agent](docs/ai-agent.md) · [AI conversation policy](docs/ai-conversation-policy.md) · [AI tools & approval](docs/ai-tools.md)
 - [Automations & worker](docs/automations.md)
+- [Web chat widget](docs/widget.md) and [realtime](docs/realtime.md)
 - [Authentication](docs/authentication.md) · [Authorization](docs/authorization.md) · [API](docs/api.md)
 - [Server state (TanStack Query)](docs/server-state.md)
 - [Database](docs/database.md)

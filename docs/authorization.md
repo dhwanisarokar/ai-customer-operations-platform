@@ -103,6 +103,6 @@ deterministic application code. Details: [knowledge-base.md](knowledge-base.md),
 
 ## Automation permissions (Phase 6)
 
-`view_automations` (all roles); `create_automations`, `update_automations`, `delete_automations`,
+`manage_widget` (ADMIN, OWNER: configure the web chat widget); `change_handling_mode` (ADMIN, OWNER: switch a web chat between AI and human handling; members take over by claiming or replying); `view_automations` (all roles); `create_automations`, `update_automations`, `delete_automations`,
 `execute_automations` (ADMIN and OWNER). An automation acts with its creator's permissions, checked when it
 is saved and again every time it runs. See [automations.md](automations.md).

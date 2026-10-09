@@ -14,16 +14,22 @@ import {
 } from "../hooks/mutations";
 import { CONVERSATION_PRIORITIES, type ConversationStatus } from "../schemas";
 import { allowedTransitions } from "../transitions";
+import { HandlingModeControl } from "./handling-mode-control";
 
 type Member = { id: string; label: string; email: string; name: string | null };
 
 type Props = {
-  conversation: Pick<ConversationJson, "id" | "status" | "priority" | "assignee">;
+  conversation: Pick<
+    ConversationJson,
+    "id" | "status" | "priority" | "assignee" | "channel" | "handlingMode"
+  >;
   currentUserId: string;
   members: Member[];
   canUpdate: boolean;
   /** ADMIN and OWNER can assign anyone; members can only claim/release for themselves. */
   canAssignOthers: boolean;
+  /** ADMIN and OWNER can switch who answers a web chat (AI or people). */
+  canChangeHandling?: boolean;
 };
 
 /**
@@ -37,6 +43,7 @@ export function ConversationControls({
   members,
   canUpdate,
   canAssignOthers,
+  canChangeHandling = false,
 }: Props) {
   const status = useChangeConversationStatus();
   const priority = useChangeConversationPriority();
@@ -167,6 +174,7 @@ export function ConversationControls({
             )}
           </div>
         )}
+        <HandlingModeControl conversation={conversation} canChange={canChangeHandling} />
       </div>
       {error ? (
         <p role="alert" className="text-destructive text-sm">

@@ -6,6 +6,10 @@ import { AGENT_LIMITS, AI_TIMEOUTS } from "../config";
 import { AiInvalidResponseError } from "../errors";
 import {
   buildUserPrompt,
+  CUSTOMER_FALLBACK_REPLY,
+  CUSTOMER_PROMPT_VERSION,
+  CUSTOMER_RESPONSE_JSON_SCHEMA,
+  CUSTOMER_SYSTEM_INSTRUCTION,
   FALLBACK_REPLY,
   lastAuthor,
   STAFF_FALLBACK_REPLY,
@@ -36,6 +40,8 @@ const modelOutputSchema = z.object({
  * plus retrieved chunks, and returns text. It never decides authorization.
  */
 export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
+  const customerMode = input.mode === "customer";
+  const promptVersion = customerMode ? CUSTOMER_PROMPT_VERSION : PROMPT_VERSION;
   const chunks = await searchKnowledge({
     organizationId: input.organizationId,
     query: input.retrievalQuery.slice(0, AGENT_LIMITS.maxQueryChars),
@@ -43,9 +49,9 @@ export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
   });
 
   const generation = await getAiProvider().generateResponse({
-    systemInstruction: SYSTEM_INSTRUCTION,
+    systemInstruction: customerMode ? CUSTOMER_SYSTEM_INSTRUCTION : SYSTEM_INSTRUCTION,
     prompt: buildUserPrompt(input, chunks),
-    responseJsonSchema: RESPONSE_JSON_SCHEMA,
+    responseJsonSchema: customerMode ? CUSTOMER_RESPONSE_JSON_SCHEMA : RESPONSE_JSON_SCHEMA,
     temperature: 0.2,
     maxOutputTokens: 2048,
     timeoutMs: AI_TIMEOUTS.generationMs,
@@ -70,13 +76,19 @@ export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
   }
 
   // When staff wrote last, the sender is the team: the fallback must not point at "a team member".
-  const fallback = lastAuthor(input) === "customer" ? FALLBACK_REPLY : STAFF_FALLBACK_REPLY;
+  const fallback = customerMode
+    ? CUSTOMER_FALLBACK_REPLY
+    : lastAuthor(input) === "customer"
+      ? FALLBACK_REPLY
+      : STAFF_FALLBACK_REPLY;
   let reply = output.reply;
   let validation: AgentResult["validation"] = "ok";
   let grounded = output.answerable && sources.length > 0;
   // A reply built from the customer's own record (profile / tool results) needs no knowledge
   // citation. It is never a policy claim: those still require a cited source to be kept.
-  let accountData = output.answerable && !grounded && output.usedAccountData === true;
+  // Customer mode never has account data (no record is sent), so it can never justify an answer.
+  let accountData =
+    !customerMode && output.answerable && !grounded && output.usedAccountData === true;
 
   if (looksLikePromptLeak(reply)) {
     // Best-effort guard against the model echoing its instructions.
@@ -85,13 +97,13 @@ export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
     accountData = false;
     validation = "prompt_leak_replaced";
     sources.length = 0;
-    log.warn({ promptVersion: PROMPT_VERSION }, "reply replaced: possible prompt leak");
+    log.warn({ promptVersion }, "reply replaced: possible prompt leak");
   } else if (output.answerable && !grounded && !accountData) {
     // The model claims to answer from knowledge but cited nothing valid (or nothing was retrieved).
     reply = fallback;
     validation = "ungrounded_answer_replaced";
     log.warn(
-      { promptVersion: PROMPT_VERSION, retrieved: chunks.length },
+      { promptVersion, retrieved: chunks.length },
       "reply replaced: answer was not grounded in retrieved knowledge",
     );
   } else if (!output.answerable) {
@@ -104,7 +116,7 @@ export async function runSupportAgent(input: AgentInput): Promise<AgentResult> {
     accountData,
     sources,
     retrievedChunkIds: chunks.map((chunk) => chunk.chunkId),
-    promptVersion: PROMPT_VERSION,
+    promptVersion,
     model: generation.model,
     provider: generation.provider,
     latencyMs: generation.latencyMs,

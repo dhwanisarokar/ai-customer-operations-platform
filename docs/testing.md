@@ -196,3 +196,68 @@ Regression `2b`/`2c` in `ai-tools.test.ts` and the staff-last cases in `prompts.
   ordinary suite needs no Redis.
 - `src/features/automations/components/automations-ui.test.tsx`: builder, validation problems, trigger
   changes, read-only mode, list toggle, history and run details.
+
+## Web chat widget and realtime (Phase 7)
+
+- `tests/integration/widget.test.ts` (real PostgreSQL, calls the route handlers): settings and RBAC,
+  invalid/disabled keys, origin allowlist, session start/resume/expiry/revocation, token hash storage,
+  conversation creation and idempotency (`clientMessageId`, concurrent retries), visitor-authored messages,
+  rejected client-supplied sender/org/customer, size/length validation, cross-visitor and cross-organization
+  404s, internal notes never visible, identity resolution (normalized email, no duplicates, no cross-org
+  link, existing customers untouched), handoff and claim, automation trigger from a visitor message, rate
+  limits (429 + `Retry-After`), realtime routing (Visitor A vs B, org A vs org B, internal notes) and SSE
+  authentication.
+- `src/server/widget/widget.unit.test.ts`: key/token generation and hashing, schemas, origin
+  normalization, rate limiter, channel authorization.
+- `src/features/widget/components/*.test.tsx`: widget states (loading, unavailable, welcome, create,
+  sending/failed/retry with the same id, handoff, reconnecting, expired-session recovery), SSE parsing, and
+  the settings form. `use-inbox-realtime.test.tsx`: stream + reconnect reconciliation.
+- Not covered: a real browser (no Playwright/Cypress is configured), the iframe loader, a real
+  multi-instance Redis pub/sub run.
+
+## Public widget isolation and browser check (Phase 7 follow-up)
+
+- `src/proxy.test.ts`: the middleware matcher skips `/widget/*` and `/api/widget/*` but still matches
+  `/dashboard`, `/api/me`, `/api/conversations`, `/api/widget-settings`, `/api/realtime/inbox`...; widget code
+  imports nothing from Clerk; only `(app)/layout.tsx` has `ClerkProvider`.
+- `chat-widget.test.tsx` also checks that React StrictMode opens exactly one visitor session.
+- `src/server/redis-ready.test.ts`: the first Redis command waits for the connection.
+- Manual real-browser check (Chrome driven by a throwaway playwright-core outside the repo, against a
+  scratch database and Redis): a standalone HTML file with only the snippet loads the iframe with no Clerk
+  request, a visitor chats, an agent reply (another process, via Redis) arrives live, handoff, internal
+  note stays hidden, reload restores history. The agent side used the real services, not the signed-in
+  dashboard UI (no Clerk credentials were available).
+
+## Customer-facing AI and widget UI polish (Phase 7 follow-up)
+
+- `tests/integration/customer-ai.test.ts` (real PostgreSQL, fake AI provider): answer from published
+  knowledge shown to the visitor, small talk / off-topic / injection without a model call, no knowledge ->
+  fallback offering a person (no handoff), ungrounded and leaked answers replaced, explicit request / accepted offer / unrelated "yes" / AI text is not consent / button / silence after handoff / duplicate handoff processing, internal notes /
+  metadata / customer record never in the prompt, no tools or mutations, provider failure (retry, then safe
+  fallback) and malformed output, realtime listener failure, AI off by default, duplicates (retried
+  message, same job twice, concurrent workers), newest-message rule, handoff / assignment / human reply
+  silence the AI, late answer discarded after a takeover, realtime only after persistence, tenant isolation.
+- `tests/integration/customer-ai-bullmq.test.ts`: the same flow through real BullMQ + Redis (skipped without
+  `TEST_REDIS_URL`).
+- `src/server/ai/agent/customer-agent.test.ts`: customer-mode prompt/schema, no profile, fallback, account
+  data, no handoff field, leak, malformed output, provider failure; the draft mode stays unchanged.
+- `src/features/widget`: view model, derived titles, AI states, composer geometry is checked in a browser.
+- Browser check (Chrome via playwright-core outside the repo, real Gemini, scratch PostgreSQL + Redis, the
+  worker running): see the final report of the phase for the checks and results.
+
+- `src/server/ai/policy/handoff.test.ts`: explicit-request and acceptance phrases and non-phrases.
+
+## Handling mode and single handoff action (Phase 7 follow-up)
+
+- `tests/integration/handling-mode.test.ts` (real PostgreSQL): initial mode (AI / HUMAN / in-app), visitor
+  handoff, AI fallback does not switch, assignment / claim / unassign, agent reply vs note, manual and no-op
+  switches, AI refused when disabled, queued job after a switch, scheduling refused for HUMAN, late answer
+  discarded after a switch during generation, the atomic claim (a row-lock test and a race loop), duplicate jobs,
+  resolved / reopened (AI-mode and taken-over), RBAC (member 403, anonymous 401, admin/owner), strict body,
+  cross-tenant 404, and Ask AI drafts unchanged in both modes.
+- `src/features/conversations/components/handling-mode-control.test.tsx`: labels, one-click switch to human,
+  confirmation before AI (cancel sends nothing), server refusal shown, read-only without permission, hidden for
+  non-web-chat.
+- `src/features/widget/components/handoff-action.test.tsx`: exactly one action for an AI fallback, replaced by a
+  status after requesting, no duplicate after reload or a realtime update, nothing after takeover, email sharing
+  independent.
