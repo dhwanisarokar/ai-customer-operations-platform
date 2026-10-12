@@ -32,14 +32,18 @@ describe("proxy (Clerk middleware) matcher", () => {
     "/api/customers",
     "/api/widget-settings",
     "/api/realtime/inbox",
+    "/portal/acme",
+    "/portal/acme/conversations",
+    "/api/portal/acme/summary",
+    "/api/portal-settings",
     "/api/automations",
   ])("still runs for the internal path %s", (path) => {
     expect(runsClerk(path)).toBe(true);
   });
 
-  it("only /dashboard pages are redirected to sign-in by the middleware", () => {
+  it("only the dashboard and portal pages are redirected to sign-in by the middleware", () => {
     const source = readFileSync(join(__dirname, "proxy.ts"), "utf8");
-    expect(source).toContain('createRouteMatcher(["/dashboard(.*)"])');
+    expect(source).toContain('createRouteMatcher(["/dashboard(.*)", "/portal(.*)"])');
   });
 });
 

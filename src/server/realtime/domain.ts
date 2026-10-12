@@ -2,7 +2,7 @@ import { createLogger } from "@/lib/logger";
 import type { DomainEvent } from "@/server/events/types";
 import { conversationsRepository } from "@/server/repositories/conversations";
 import { buildRealtimeEvent, type RealtimeEventType } from "./events";
-import { inboxChannel, visitorChannel } from "./channels";
+import { inboxChannel, portalChannel, visitorChannel } from "./channels";
 import { publishRealtime } from "./publisher";
 
 const log = createLogger("realtime");
@@ -59,11 +59,19 @@ export async function publishForDomainEvent(event: DomainEvent): Promise<void> {
     await publishRealtime(inboxChannel(event.organizationId), realtime);
 
     if (toVisitor) {
-      const visitorSessionId = await conversationsRepository.visitorSessionIdOf(
+      const audience = await conversationsRepository.audienceOf(
         event.organizationId,
         conversationId,
       );
-      if (visitorSessionId) await publishRealtime(visitorChannel(visitorSessionId), realtime);
+      if (audience.visitorSessionId) {
+        await publishRealtime(visitorChannel(audience.visitorSessionId), realtime);
+      }
+      if (audience.portalCustomerId) {
+        await publishRealtime(
+          portalChannel(event.organizationId, audience.portalCustomerId),
+          realtime,
+        );
+      }
     }
   } catch (error) {
     log.warn(
@@ -81,9 +89,14 @@ export async function publishForDomainEvent(event: DomainEvent): Promise<void> {
 export async function publishConversationUpdated(
   organizationId: string,
   conversationId: string,
-  visitorSessionId: string | null,
+  audience: { visitorSessionId?: string | null; portalCustomerId?: string | null },
 ): Promise<void> {
   const realtime = buildRealtimeEvent("conversation.updated", conversationId);
   await publishRealtime(inboxChannel(organizationId), realtime);
-  if (visitorSessionId) await publishRealtime(visitorChannel(visitorSessionId), realtime);
+  if (audience.visitorSessionId) {
+    await publishRealtime(visitorChannel(audience.visitorSessionId), realtime);
+  }
+  if (audience.portalCustomerId) {
+    await publishRealtime(portalChannel(organizationId, audience.portalCustomerId), realtime);
+  }
 }

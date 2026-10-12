@@ -31,6 +31,7 @@ export const PERMISSIONS = [
   "execute_automations",
   "manage_widget",
   "change_handling_mode",
+  "manage_portal",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -73,6 +74,9 @@ const ADMIN_PERMISSIONS: readonly Permission[] = [
   // Letting the customer-facing AI answer a conversation (or not) is an organization-level choice.
   // Members still take over a conversation by claiming it or replying (which switches it to HUMAN).
   "change_handling_mode",
+  // The customer portal exposes a customer's conversations to a login: enabling it and inviting
+  // customers is an organization-level decision.
+  "manage_portal",
 ];
 const OWNER_PERMISSIONS: readonly Permission[] = [
   ...ADMIN_PERMISSIONS,

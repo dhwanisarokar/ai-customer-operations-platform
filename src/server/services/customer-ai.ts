@@ -40,6 +40,29 @@ export const customerAiJobId = (messageId: string) => `customer-ai-${messageId}`
 export const aiReplyClientId = (messageId: string) => `ai-reply-${messageId}`;
 
 /**
+ * Is customer-facing AI switched on for this kind of conversation? It needs the organization's AI
+ * switch; web chat additionally needs the widget enabled (the portal has its own on/off, checked where
+ * the portal is resolved).
+ */
+export function customerAiEnabledFor(
+  settings: { enabled: boolean; aiRepliesEnabled: boolean } | null,
+  channel: "IN_APP" | "WEB_CHAT" | "PORTAL",
+): boolean {
+  if (!settings?.aiRepliesEnabled) return false;
+  return channel === "PORTAL" || settings.enabled;
+}
+
+/** The handling mode a NEW customer-facing conversation starts in: AI only when customer AI is usable. */
+export async function initialHandlingMode(
+  organizationId: string,
+  channel: "WEB_CHAT" | "PORTAL",
+): Promise<"AI" | "HUMAN"> {
+  if (!aiProviderAvailable()) return "HUMAN";
+  const settings = await widgetSettingsRepository.findByOrganization(organizationId);
+  return customerAiEnabledFor(settings, channel) ? "AI" : "HUMAN";
+}
+
+/**
  * May the customer-facing AI answer this conversation right now? Only in AI handling mode and not
  * while it is resolved. The mode is explicit (set by the visitor's handoff, an assignment, an agent's
  * reply or the agent's switch); it is never inferred from other fields. This is a cheap early check:
@@ -63,20 +86,22 @@ export async function scheduleCustomerAiReply(params: {
   organizationId: string;
   conversationId: string;
   messageId: string;
-  visitorSessionId: string;
+  /** Web chat only; portal conversations are rate limited per customer. */
+  visitorSessionId?: string | null;
 }): Promise<void> {
-  const { organizationId, conversationId, messageId, visitorSessionId } = params;
+  const { organizationId, conversationId, messageId } = params;
   try {
     if (!aiProviderAvailable()) return;
     const settings = await widgetSettingsRepository.findByOrganization(organizationId);
-    if (!settings?.enabled || !settings.aiRepliesEnabled) return;
 
     // Mode is enforced BEFORE queueing as well (the worker checks again, and again when storing).
     const conversation = await customerAiRepository.findConversation(
       organizationId,
       conversationId,
     );
-    if (!conversation || !aiMayAnswer(conversation)) return;
+    if (!conversation || !customerAiEnabledFor(settings, conversation.channel)) return;
+    if (!aiMayAnswer(conversation)) return;
+    const visitorSessionId = params.visitorSessionId ?? `customer:${conversation.customerId}`;
 
     const limiter = getRateLimiter();
     const [bySession, byOrganization] = await Promise.all([
@@ -208,11 +233,11 @@ const failureReply = (): CustomerReply => ({
 async function handOffToPerson(params: {
   organizationId: string;
   conversationId: string;
-  visitorSessionId: string;
+  requester: { visitorSessionId: string } | { customerId: string };
   clientMessageId: string;
 }) {
-  const { organizationId, conversationId, visitorSessionId, clientMessageId } = params;
-  await markHumanRequested({ organizationId, visitorSessionId, conversationId });
+  const { organizationId, conversationId, requester, clientMessageId } = params;
+  await markHumanRequested({ organizationId, conversationId, requester });
   try {
     await persistMessage({
       organizationId,
@@ -258,10 +283,9 @@ export async function processCustomerAiJob(job: CustomerAiJob, attempt: JobAttem
     log.info({ organizationId, conversationId, messageId, reason }, "customer ai skipped");
 
   const settings = await widgetSettingsRepository.findByOrganization(organizationId);
-  if (!settings?.enabled || !settings.aiRepliesEnabled) return skip("disabled");
-
   const conversation = await customerAiRepository.findConversation(organizationId, conversationId);
-  if (!conversation?.visitorSessionId) return skip("not_web_chat");
+  if (!conversation) return skip("not_customer_conversation");
+  if (!customerAiEnabledFor(settings, conversation.channel)) return skip("disabled");
   const message = await customerAiRepository.findCustomerMessage(
     organizationId,
     conversationId,
@@ -295,7 +319,9 @@ export async function processCustomerAiJob(job: CustomerAiJob, attempt: JobAttem
     await handOffToPerson({
       organizationId,
       conversationId,
-      visitorSessionId: conversation.visitorSessionId,
+      requester: conversation.visitorSessionId
+        ? { visitorSessionId: conversation.visitorSessionId }
+        : { customerId: conversation.customerId },
       clientMessageId,
     });
     return;

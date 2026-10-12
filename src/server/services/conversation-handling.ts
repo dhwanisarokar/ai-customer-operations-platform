@@ -8,6 +8,7 @@ import { conversationEventsRepository } from "@/server/repositories/conversation
 import { conversationsRepository, type ConversationDto } from "@/server/repositories/conversations";
 import { customerAiRepository } from "@/server/repositories/customer-ai";
 import { widgetSettingsRepository } from "@/server/repositories/widget-settings";
+import { customerAiEnabledFor } from "./customer-ai";
 import { eventActor } from "./conversations";
 
 const log = createLogger("conversation-handling");
@@ -55,7 +56,7 @@ export async function setHandlingMode(
 
     if (mode === "AI") {
       const settings = await widgetSettingsRepository.findByOrganization(organizationId, tx);
-      if (!settings?.enabled || !settings.aiRepliesEnabled || !aiProviderAvailable()) {
+      if (!customerAiEnabledFor(settings, conversation.channel) || !aiProviderAvailable()) {
         throw new ConflictError("Customer-facing AI is not enabled for this organization");
       }
     }
@@ -91,7 +92,9 @@ export async function setHandlingMode(
       { organizationId, conversationId, actorId: ctx.user.id, mode },
       "handling mode changed",
     );
-    await publishConversationUpdated(organizationId, conversationId, changed.visitorSessionId);
+    await conversationsRepository
+      .audienceOf(organizationId, conversationId)
+      .then((audience) => publishConversationUpdated(organizationId, conversationId, audience));
   }
   const updated = await conversationsRepository.findById(
     organizationId,

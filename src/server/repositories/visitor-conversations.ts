@@ -126,12 +126,13 @@ export const visitorConversationsRepository = {
    */
   async requestPerson(
     organizationId: string,
-    visitorSessionId: string,
+    /** Who owns the conversation: a web chat visitor session or a portal customer. */
+    owner: { visitorSessionId: string } | { customerId: string },
     id: string,
     at: Date,
     db: Db = getDb(),
   ): Promise<{ marked: boolean; modeChanged: boolean }> {
-    const scope = { id, organizationId, visitorSessionId };
+    const scope = { id, organizationId, ...owner };
     const mode = await db.conversation.updateMany({
       where: { ...scope, handlingMode: "AI" },
       data: { handlingMode: "HUMAN", updatedAt: at },

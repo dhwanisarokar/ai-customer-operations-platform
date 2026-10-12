@@ -370,3 +370,9 @@ Conversations now include `channel` (`IN_APP` or `WEB_CHAT`) and `humanRequested
 | `POST /api/conversations/:id/handling` | change_handling_mode | `{ mode: "AI" or "HUMAN" }` (strict). Returns `{ conversation }`. 409 when AI is requested for a non-web-chat conversation or customer AI is disabled; 404 for another organization. |
 
 Conversations now include `handlingMode`.
+
+## Customer portal (Phase 8)
+
+Customer endpoints (`/api/portal/{org}/...`, Clerk session + verified customer link) and the staff endpoints
+(`/api/portal-settings`, `/api/customers/:id/portal-invite`, `/api/customers/:id/portal-access`, permission
+`manage_portal`) are documented in [portal.md](portal.md). Conversations now also have channel `PORTAL`.

@@ -171,3 +171,12 @@ Migration `conversation_handling_mode` (additive): enum `ConversationHandlingMod
 `conversations.handlingMode NOT NULL DEFAULT 'HUMAN'`, enum value `ConversationEventType.HANDLING_MODE_CHANGED`.
 Web chats that were being answered by the AI (customer AI enabled for the organization, no handoff request, no
 assignee) are backfilled to `AI` so behavior is preserved. See [customer-ai](customer-ai.md).
+
+## Customer portal (Phase 8)
+
+Migration `customer_portal` (additive): `ConversationChannel.PORTAL`; `portal_settings` (one row per organization,
+`enabled` default false); `customer_portal_accounts` (organizationId, customerId, userId) with
+`UNIQUE(organizationId, userId)`, `UNIQUE(organizationId, customerId)`, composite FK
+`(customerId, organizationId) -> customers(id, organizationId)` and FK to `users`; `portal_invites`
+(`tokenHash` unique, `expiresAt`, `usedAt`, composite FK to customers, CHECK `expiresAt > createdAt`). See
+[portal](portal.md) and ADR [014](decisions/014-customer-portal-identity-linking.md).

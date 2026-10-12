@@ -3,7 +3,12 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 /** The only module that talks to Clerk server-side. Everything else depends on these shapes. */
 export type Identity = { authProviderId: string };
 
-export type IdentityProfile = { email: string; name: string | null };
+export type IdentityProfile = {
+  email: string;
+  /** True only when the identity provider verified that the user controls this address. */
+  emailVerified: boolean;
+  name: string | null;
+};
 
 /** The authenticated identity of the current request, or null when signed out. */
 export async function getIdentity(): Promise<Identity | null> {
@@ -20,5 +25,9 @@ export async function getIdentityProfile(authProviderId: string): Promise<Identi
     user.emailAddresses[0];
   if (!primary) return null;
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
-  return { email: primary.emailAddress.toLowerCase(), name: name || null };
+  return {
+    email: primary.emailAddress.toLowerCase(),
+    emailVerified: primary.verification?.status === "verified",
+    name: name || null,
+  };
 }

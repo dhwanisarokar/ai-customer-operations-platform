@@ -21,7 +21,11 @@ export async function getOrCreateUser(identity: Identity): Promise<AppUser> {
   }
 
   try {
-    return await usersRepository.create({ authProviderId: identity.authProviderId, ...profile });
+    return await usersRepository.create({
+      authProviderId: identity.authProviderId,
+      email: profile.email,
+      name: profile.name,
+    });
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
     // Either a concurrent request just created this user, or the email belongs to another identity.

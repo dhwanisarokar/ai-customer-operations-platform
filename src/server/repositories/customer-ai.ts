@@ -9,14 +9,11 @@ export const customerAiRepository = {
   /** The web chat conversation the AI may answer in, with the minimum state needed to decide. */
   findConversation(organizationId: string, conversationId: string, db: Db = getDb()) {
     return db.conversation.findFirst({
-      where: {
-        id: conversationId,
-        organizationId,
-        channel: "WEB_CHAT",
-        visitorSessionId: { not: null },
-      },
+      where: { id: conversationId, organizationId, channel: { in: ["WEB_CHAT", "PORTAL"] } },
       select: {
         id: true,
+        channel: true,
+        customerId: true,
         status: true,
         visitorSessionId: true,
         humanRequestedAt: true,

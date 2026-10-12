@@ -137,4 +137,54 @@ export const knowledgeDocumentsRepository = {
     ]);
     return { items: rows.map(withChunkCount), total };
   },
+
+  /**
+   * HELP CENTER reads: PUBLISHED documents only, with the minimal customer-safe projection (no author,
+   * version, chunk or embedding data). Drafts and archived documents can never match.
+   */
+  async listPublished(
+    organizationId: string,
+    query: { q?: string; page: number; pageSize: number },
+    db: Db = getDb(),
+  ): Promise<{
+    items: {
+      id: string;
+      title: string;
+      description: string | null;
+      content: string;
+      publishedAt: Date | null;
+    }[];
+    total: number;
+  }> {
+    const and: Prisma.KnowledgeDocumentWhereInput[] = [];
+    for (const raw of searchTokens(query.q)) {
+      const term = escapeLike(raw);
+      and.push({
+        OR: [
+          { title: { contains: term, mode: "insensitive" } },
+          { description: { contains: term, mode: "insensitive" } },
+          { content: { contains: term, mode: "insensitive" } },
+        ],
+      });
+    }
+    const where = { organizationId, status: "PUBLISHED" as const, AND: and };
+    const [items, total] = await Promise.all([
+      db.knowledgeDocument.findMany({
+        where,
+        orderBy: [{ title: "asc" }, { id: "asc" }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: { id: true, title: true, description: true, content: true, publishedAt: true },
+      }),
+      db.knowledgeDocument.count({ where }),
+    ]);
+    return { items, total };
+  },
+
+  findPublished(organizationId: string, id: string, db: Db = getDb()) {
+    return db.knowledgeDocument.findFirst({
+      where: { id, organizationId, status: "PUBLISHED" },
+      select: { id: true, title: true, description: true, content: true, publishedAt: true },
+    });
+  },
 };

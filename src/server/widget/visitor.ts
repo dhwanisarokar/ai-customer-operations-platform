@@ -77,7 +77,7 @@ function toConversationDto(
   };
 }
 
-function toMessageDto(row: VisitorMessageRow): VisitorMessageDto {
+export function toMessageDto(row: VisitorMessageRow): VisitorMessageDto {
   const fromVisitor = row.senderType === "CUSTOMER";
   const fromAi = row.senderType === "AI_AGENT";
   const meta =
@@ -450,8 +450,8 @@ export async function requestHuman(visitor: VisitorContext, conversationId: stri
   const conversation = await requireOwned(visitor, conversationId);
   const requested = await markHumanRequested({
     organizationId: visitor.organizationId,
-    visitorSessionId: visitor.session.id,
     conversationId: conversation.id,
+    requester: { visitorSessionId: visitor.session.id },
   });
   return { humanRequested: true, alreadyRequested: !requested };
 }

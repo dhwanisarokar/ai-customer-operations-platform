@@ -57,3 +57,6 @@ src/
 - Customer-facing AI replies (web chat): [customer-ai](customer-ai.md), ADR
   [012](decisions/012-customer-facing-ai-read-only.md). A read-only path (no tools, no customer record)
   on the existing queue; the internal draft workflow is unchanged.
+- Customer portal: [portal](portal.md), ADR [014](decisions/014-customer-portal-identity-linking.md). A third
+  authorization context (an authenticated customer, via an explicit invitation-created link) next to staff and
+  anonymous visitors; conversations reuse the existing domain through a `portal` actor.

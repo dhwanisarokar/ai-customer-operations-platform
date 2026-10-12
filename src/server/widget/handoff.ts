@@ -16,16 +16,19 @@ const log = createLogger("widget");
  */
 export async function markHumanRequested(params: {
   organizationId: string;
-  visitorSessionId: string;
   conversationId: string;
+  /** The requester: the web chat visitor session or the portal customer (never both). */
+  requester: { visitorSessionId: string } | { customerId: string };
 }): Promise<boolean> {
-  const { organizationId, visitorSessionId, conversationId } = params;
+  const { organizationId, conversationId, requester } = params;
+  const actorId =
+    "visitorSessionId" in requester ? requester.visitorSessionId : requester.customerId;
   const now = new Date();
 
   const { marked, modeChanged } = await transaction(async (tx) => {
     const result = await visitorConversationsRepository.requestPerson(
       organizationId,
-      visitorSessionId,
+      requester,
       conversationId,
       now,
       tx,
@@ -38,7 +41,7 @@ export async function markHumanRequested(params: {
           type: "HANDLING_MODE_CHANGED",
           metadata: { from: "AI", to: "HUMAN", reason: "visitor_requested" },
           actorType: "CUSTOMER",
-          actorId: visitorSessionId,
+          actorId,
           createdAt: now,
         },
         tx,
@@ -52,7 +55,7 @@ export async function markHumanRequested(params: {
           type: "HUMAN_REQUESTED",
           metadata: {},
           actorType: "CUSTOMER",
-          actorId: visitorSessionId,
+          actorId,
           createdAt: now,
         },
         tx,
@@ -63,7 +66,13 @@ export async function markHumanRequested(params: {
 
   if (marked || modeChanged) {
     log.info({ organizationId, conversationId, marked, modeChanged }, "human requested");
-    await publishConversationUpdated(organizationId, conversationId, visitorSessionId);
+    await publishConversationUpdated(
+      organizationId,
+      conversationId,
+      "visitorSessionId" in requester
+        ? { visitorSessionId: requester.visitorSessionId }
+        : { portalCustomerId: requester.customerId },
+    );
   }
   return marked;
 }

@@ -213,6 +213,22 @@ export const conversationsRepository = {
     return result.count === 1;
   },
 
+  /** Who else must hear about a change: the web chat visitor session and/or the portal customer. */
+  async audienceOf(
+    organizationId: string,
+    id: string,
+    db: Db = getDb(),
+  ): Promise<{ visitorSessionId: string | null; portalCustomerId: string | null }> {
+    const row = await db.conversation.findUnique({
+      where: { id_organizationId: { id, organizationId } },
+      select: { visitorSessionId: true, channel: true, customerId: true },
+    });
+    return {
+      visitorSessionId: row?.visitorSessionId ?? null,
+      portalCustomerId: row?.channel === "PORTAL" ? row.customerId : null,
+    };
+  },
+
   /** Lightweight state used by write paths (no joins). */
   findState(
     organizationId: string,

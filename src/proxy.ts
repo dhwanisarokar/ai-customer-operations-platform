@@ -1,8 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// Only UI pages are gated here. API routes authenticate themselves and answer 401 JSON rather
+// Only UI pages are gated here (the staff dashboard and the customer portal). API routes authenticate themselves and answer 401 JSON rather
 // than redirecting, and every handler re-checks identity and tenant membership server-side.
-const isProtectedPage = createRouteMatcher(["/dashboard(.*)"]);
+const isProtectedPage = createRouteMatcher(["/dashboard(.*)", "/portal(.*)"]);
 
 export default clerkMiddleware(async (auth, request) => {
   if (isProtectedPage(request)) await auth.protect();

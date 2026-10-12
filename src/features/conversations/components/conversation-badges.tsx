@@ -37,6 +37,7 @@ export function ConversationOriginBadges({
     <>
       {humanRequestedAt ? <Badge variant="destructive">Wants a person</Badge> : null}
       {channel === "WEB_CHAT" ? <Badge variant="secondary">Web chat</Badge> : null}
+      {channel === "PORTAL" ? <Badge variant="secondary">Portal</Badge> : null}
     </>
   );
 }

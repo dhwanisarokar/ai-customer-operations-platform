@@ -23,7 +23,8 @@ export function HandlingModeControl({
 }) {
   const setMode = useSetHandlingMode();
   const [confirming, setConfirming] = useState(false);
-  if (conversation.channel !== "WEB_CHAT") return null;
+  // Web chat and portal conversations have a customer the AI can answer.
+  if (conversation.channel !== "WEB_CHAT" && conversation.channel !== "PORTAL") return null;
 
   const mode = conversation.handlingMode;
   const id = conversation.id;

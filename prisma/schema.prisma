@@ -25,8 +25,9 @@ model User {
   memberships               Membership[]
   notes                     CustomerNote[]
   messages                  Message[]
-  createdKnowledgeDocuments KnowledgeDocument[] @relation("KnowledgeCreatedBy")
-  updatedKnowledgeDocuments KnowledgeDocument[] @relation("KnowledgeUpdatedBy")
+  createdKnowledgeDocuments KnowledgeDocument[]     @relation("KnowledgeCreatedBy")
+  updatedKnowledgeDocuments KnowledgeDocument[]     @relation("KnowledgeUpdatedBy")
+  portalAccounts            CustomerPortalAccount[]
 
   @@map("users")
 }
@@ -58,6 +59,9 @@ model Organization {
   automationRuns     AutomationExecution[]
   widgetSettings     WidgetSettings?
   visitorSessions    VisitorSession[]
+  portalSettings     PortalSettings?
+  portalAccounts     CustomerPortalAccount[]
+  portalInvites      PortalInvite[]
 
   @@map("organizations")
 }
@@ -132,12 +136,14 @@ model Customer {
   updatedAt      DateTime       @default(now())
   archivedAt     DateTime?
 
-  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   tags            CustomerTag[]
   activities      CustomerActivity[]
   notes           CustomerNote[]
   conversations   Conversation[]
   visitorSessions VisitorSession[]
+  portalAccounts  CustomerPortalAccount[]
+  portalInvites   PortalInvite[]
 
   // Business rules are tenant-aware: the same email/externalId may exist in different organizations.
   @@unique([organizationId, email])
@@ -244,6 +250,8 @@ enum ConversationChannel {
   IN_APP
   // A visitor of an organization's embedded web chat widget (Phase 7).
   WEB_CHAT
+  // An authenticated customer in the customer portal (Phase 8).
+  PORTAL
 }
 
 enum MessageSenderType {
@@ -671,4 +679,60 @@ model VisitorSession {
   @@index([organizationId, customerId])
   @@index([organizationId, expiresAt])
   @@map("visitor_sessions")
+}
+
+// ---- Customer portal (Phase 8) --------------------------------------------------------------------
+
+// One row per organization; created lazily, disabled by default. The portal lives at
+// /portal/{organization slug}: the slug only SELECTS the organization, it authorizes nothing.
+model PortalSettings {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @unique @db.Uuid
+  enabled        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("portal_settings")
+}
+
+// The explicit link between an authenticated identity (a User, i.e. a Clerk identity) and ONE customer
+// record of ONE organization. Created only by redeeming an invitation (see PortalInvite); never from an
+// email match. Both unique constraints are the integrity guarantee against duplicate and concurrent
+// links: an identity maps to at most one customer per organization, and a customer is claimed by at
+// most one identity.
+model CustomerPortalAccount {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  customerId     String   @db.Uuid
+  userId         String   @db.Uuid
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: NoAction)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@unique([organizationId, customerId])
+  @@map("customer_portal_accounts")
+}
+
+// A staff-issued, single-use, expiring invitation for ONE customer. Only the SHA-256 of the token is
+// stored. Redeeming needs the token AND a verified identity email equal to the customer's email.
+model PortalInvite {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @db.Uuid
+  customerId      String    @db.Uuid
+  tokenHash       String    @unique
+  createdByUserId String?   @db.Uuid
+  expiresAt       DateTime
+  usedAt          DateTime?
+  createdAt       DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: NoAction)
+
+  @@index([organizationId, customerId])
+  @@map("portal_invites")
 }

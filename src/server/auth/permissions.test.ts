@@ -113,5 +113,9 @@ describe("web chat widget permissions", () => {
     expect(hasPermission(Role.MEMBER, "change_handling_mode")).toBe(false);
     expect(hasPermission(Role.ADMIN, "change_handling_mode")).toBe(true);
     expect(hasPermission(Role.OWNER, "change_handling_mode")).toBe(true);
+    // Customer portal administration (enable, invite, revoke) is ADMIN/OWNER only.
+    expect(hasPermission(Role.MEMBER, "manage_portal")).toBe(false);
+    expect(hasPermission(Role.ADMIN, "manage_portal")).toBe(true);
+    expect(hasPermission(Role.OWNER, "manage_portal")).toBe(true);
   });
 });

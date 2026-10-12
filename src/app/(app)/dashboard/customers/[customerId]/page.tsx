@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PortalAccessCard } from "@/features/portal/components/portal-admin";
 import { CustomerDetailView } from "@/features/customers/components/customer-detail-view";
 import { serialize } from "@/lib/query/serialize";
 import { requirePageContext } from "@/server/auth/page-context";
@@ -49,6 +50,7 @@ export default async function CustomerDetailPage({
           createConversations: ctx.can("create_conversations"),
         }}
       />
+      {ctx.can("manage_portal") ? <PortalAccessCard customerId={data.customer.id} /> : null}
     </main>
   );
 }

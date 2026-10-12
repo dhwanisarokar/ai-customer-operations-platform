@@ -51,7 +51,11 @@ describeDb("authentication", () => {
   });
 
   it("provisions a local user on first authenticated request, once", async () => {
-    session.profiles.set("clerk_new", { email: "new@example.com", name: "New Person" });
+    session.profiles.set("clerk_new", {
+      email: "new@example.com",
+      emailVerified: true,
+      name: "New Person",
+    });
     signInAs("clerk_new");
     const first = await call(getMe);
     const second = await call(getMe);
@@ -69,7 +73,11 @@ describeDb("authentication", () => {
 
   it("rejects a second identity that claims an existing email", async () => {
     await createTestUser("dup");
-    session.profiles.set("clerk_other", { email: "dup@example.com", name: null });
+    session.profiles.set("clerk_other", {
+      email: "dup@example.com",
+      emailVerified: true,
+      name: null,
+    });
     signInAs("clerk_other");
     expect((await call(getMe)).status).toBe(409);
   });

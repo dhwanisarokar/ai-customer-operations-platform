@@ -1,3 +1,4 @@
+import { PortalSettingsCard } from "@/features/portal/components/portal-admin";
 import { WidgetSettingsForm } from "@/features/widget/components/widget-settings-form";
 import { requirePageContext } from "@/server/auth/page-context";
 
@@ -21,6 +22,7 @@ export default async function WidgetSettingsPage() {
           Only owners and admins can manage the web chat widget.
         </p>
       )}
+      {ctx.can("manage_portal") ? <PortalSettingsCard /> : null}
     </main>
   );
 }

@@ -261,3 +261,26 @@ Regression `2b`/`2c` in `ai-tools.test.ts` and the staff-last cases in `prompts.
 - `src/features/widget/components/handoff-action.test.tsx`: exactly one action for an AI fallback, replaced by a
   status after requesting, no duplicate after reload or a realtime update, nothing after takeover, email sharing
   independent.
+
+## Customer portal (Phase 8)
+
+- `tests/integration/portal.test.ts` (real PostgreSQL): signed-out 401 on every route, an unlinked identity (403 and
+  no data), a linked customer, unknown/disabled portal 404, email-only never grants access, the two-factor invitation
+  (token + verified email), single use, expiry, cross-organization redemption, concurrent redemption, duplicate and
+  conflicting links (unique constraints and composite FK), archived customers, staff identity vs. customer
+  ownership, a portal identity on staff APIs, revoke, `manage_portal` RBAC and tenants, conversation creation and
+  idempotency, own-only listing and plain 404s for other customers/channels/tenants, spoofed fields (400),
+  size limits, safe projection (no notes/provenance), retries, status policy, pagination, AI/handling mode/handoff
+  in portal conversations (and Ask AI unchanged), realtime channel isolation, automations, help center
+  (published only, per organization, projection), profile (allowed fields, email takeover attempts), rate limits.
+- `src/features/portal/components/portal-ui.test.tsx`: home, list, detail (message distinction, retry with the same
+  id, one handoff action, thinking), new conversation, help (plain text), profile, join.
+- Mutation checks were run for the email factor and the customer scope of conversation queries.
+
+### Portal browser validation (how it was done)
+
+A real Chrome (playwright-core, outside the repository) drove the real portal, Inbox and widget UI against the
+real routes, services, PostgreSQL and Redis in a scratch copy of the app. Because no Clerk test credentials
+are available, the copy replaced ONLY the identity module and the middleware with a cookie-based stand-in (the
+stub is not in the repository). Everything after "who is the caller" is the real code. Clerk's own sign-in
+screens were therefore not exercised.

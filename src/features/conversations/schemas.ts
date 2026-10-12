@@ -4,7 +4,7 @@ import { booleanParam, csv, paginationSchema } from "@/lib/query-params";
 
 export const CONVERSATION_STATUSES = ["OPEN", "PENDING", "RESOLVED"] as const;
 export const CONVERSATION_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
-export const CONVERSATION_CHANNELS = ["IN_APP", "WEB_CHAT"] as const;
+export const CONVERSATION_CHANNELS = ["IN_APP", "WEB_CHAT", "PORTAL"] as const;
 
 export type ConversationStatus = (typeof CONVERSATION_STATUSES)[number];
 export type ConversationPriority = (typeof CONVERSATION_PRIORITIES)[number];
