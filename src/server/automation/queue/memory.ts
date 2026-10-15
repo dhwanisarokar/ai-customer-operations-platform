@@ -2,6 +2,7 @@ import {
   BACKOFF_BASE_MS,
   MAX_ATTEMPTS,
   UnrecoverableJobError,
+  isEmailSendJob,
   type QueueJob,
   type AutomationQueue,
   type JobHandler,
@@ -69,6 +70,8 @@ export class MemoryAutomationQueue implements AutomationQueue {
       this.active++;
       void this.run(job).finally(() => {
         this.active--;
+        // Same rule as the BullMQ driver: an email wake-up only dedupes while it is queued or running.
+        if (isEmailSendJob(job)) this.known.delete(job.executionId);
         if (this.isIdle()) this.idleWaiters.splice(0).forEach((resolve) => resolve());
       });
     }

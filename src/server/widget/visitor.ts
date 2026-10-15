@@ -4,6 +4,8 @@ import type { WidgetIdentityInput } from "@/features/widget/schemas";
 import { createLogger } from "@/lib/logger";
 import { ConflictError, NotFoundError } from "@/server/errors";
 import { emitDomainEvent } from "@/server/events/bus";
+import { publishRecordedEvents, recordDomainEvent } from "@/server/events/outbox";
+import { transaction } from "@/db/client";
 import { customersRepository } from "@/server/repositories/customers";
 import {
   visitorConversationsRepository,
@@ -167,25 +169,56 @@ export async function ensureVisitorCustomer(visitor: VisitorContext): Promise<st
   const name = splitName(session.visitorName ?? undefined);
   let customerId: string;
   try {
-    const created = await customersRepository.create(organizationId, {
-      externalId: null,
-      firstName: name?.firstName ?? "Website visitor",
-      lastName: name?.lastName ?? null,
-      email: session.visitorEmail ?? null,
-      phone: null,
-      company: null,
-      jobTitle: null,
-      source: WEB_CHAT_SOURCE,
-      status: "ACTIVE",
+    // The placeholder customer, its `customer.created` event and the session link commit TOGETHER (so a
+    // customer never exists without its event, and a lost race leaves no orphan customer); the event is
+    // published after the commit.
+    const { created, event } = await transaction(async (tx) => {
+      const row = await customersRepository.create(
+        organizationId,
+        {
+          externalId: null,
+          firstName: name?.firstName ?? "Website visitor",
+          lastName: name?.lastName ?? null,
+          email: session.visitorEmail ?? null,
+          phone: null,
+          company: null,
+          jobTitle: null,
+          source: WEB_CHAT_SOURCE,
+          status: "ACTIVE",
+        },
+        tx,
+      );
+      if (
+        !(await visitorSessionsRepository.linkCustomerIfUnset(
+          organizationId,
+          session.id,
+          row.id,
+          tx,
+        ))
+      ) {
+        // A concurrent request linked the session first: undo this customer and use theirs.
+        throw new SessionLinkedElsewhere();
+      }
+      const recorded = await recordDomainEvent(tx, {
+        organizationId,
+        actorUserId: null,
+        type: "customer.created",
+        data: { customerId: row.id, status: row.status, company: null, source: WEB_CHAT_SOURCE },
+      });
+      return { created: row, event: recorded };
     });
-    customerId = created.id;
-    await emitDomainEvent({
-      organizationId,
-      actorUserId: null,
-      type: "customer.created",
-      data: { customerId, status: created.status, company: null, source: WEB_CHAT_SOURCE },
-    });
+    await publishRecordedEvents([event]);
+    session.customerId = created.id;
+    return created.id;
   } catch (error) {
+    if (error instanceof SessionLinkedElsewhere) {
+      const fresh = await visitorSessionsRepository.findById(organizationId, session.id);
+      if (fresh?.customerId) {
+        session.customerId = fresh.customerId;
+        return fresh.customerId;
+      }
+      throw error;
+    }
     // The visitor's email already belongs to a customer: reuse it (organization scoped).
     if (!isUniqueViolation(error) || !session.visitorEmail) throw error;
     const existing = await customersRepository.findByEmail(organizationId, session.visitorEmail);
@@ -202,6 +235,13 @@ export async function ensureVisitorCustomer(visitor: VisitorContext): Promise<st
   }
   session.customerId = customerId;
   return customerId;
+}
+
+/** Internal: the session got its customer from a concurrent request while this one was creating one. */
+class SessionLinkedElsewhere extends Error {
+  constructor() {
+    super("visitor session already linked to a customer");
+  }
 }
 
 /**

@@ -117,5 +117,9 @@ describe("web chat widget permissions", () => {
     expect(hasPermission(Role.MEMBER, "manage_portal")).toBe(false);
     expect(hasPermission(Role.ADMIN, "manage_portal")).toBe(true);
     expect(hasPermission(Role.OWNER, "manage_portal")).toBe(true);
+    // Email channel settings are ADMIN/OWNER only.
+    expect(hasPermission(Role.MEMBER, "manage_email")).toBe(false);
+    expect(hasPermission(Role.ADMIN, "manage_email")).toBe(true);
+    expect(hasPermission(Role.OWNER, "manage_email")).toBe(true);
   });
 });

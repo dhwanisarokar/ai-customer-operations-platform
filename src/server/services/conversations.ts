@@ -1,4 +1,8 @@
-import { emitDomainEvent } from "@/server/events/bus";
+import {
+  publishRecordedEvents,
+  recordDomainEvent,
+  type RecordedEvent,
+} from "@/server/events/outbox";
 import { transaction } from "@/db/client";
 import { canTransition, previewOf } from "@/features/conversations/transitions";
 import type {
@@ -55,13 +59,10 @@ export async function createConversation(
   });
 }
 
-/**
- * Creates a conversation (and its optional first message) for staff or for a web chat visitor.
- * Authorization is the caller's job; the customer must belong to `organizationId` (looked up with
- * it, and enforced again by the composite foreign key). A visitor session id is recorded on the
- * conversation so that only that session can ever read it.
- */
-export async function createConversationCore(params: {
+/** A stored conversation and its `conversation.created` event, recorded in the same transaction (durable). */
+export type CreatedConversation = { conversation: ConversationDto; event: RecordedEvent };
+
+export type CreateConversationParams = {
   organizationId: string;
   actor: Actor;
   input: Omit<CreateConversationInput, "channel"> & { channel: ConversationChannel };
@@ -69,97 +70,114 @@ export async function createConversationCore(params: {
   clientMessageId?: string;
   /** Web chat only: AI when customer AI is enabled for the organization, otherwise HUMAN (default). */
   handlingMode?: "AI" | "HUMAN";
-}): Promise<ConversationDto> {
+};
+
+/**
+ * Creates a conversation (and its optional first message) for staff or for a web chat visitor.
+ * Authorization is the caller's job; the customer must belong to `organizationId` (looked up with
+ * it, and enforced again by the composite foreign key). A visitor session id is recorded on the
+ * conversation so that only that session can ever read it.
+ */
+export async function createConversationCore(
+  params: CreateConversationParams,
+): Promise<ConversationDto> {
+  const created = await transaction((tx) => createConversationInTransaction(tx, params));
+  await announceConversationCreated(params, created);
+  return created.conversation;
+}
+
+/**
+ * The transactional part of `createConversationCore`, for callers that store the conversation together
+ * with other rows atomically (inbound email). The caller MUST call `announceConversationCreated` after its
+ * transaction has committed.
+ */
+export async function createConversationInTransaction(
+  tx: Prisma.TransactionClient,
+  params: CreateConversationParams,
+): Promise<CreatedConversation> {
   const { organizationId, actor, input, visitorSessionId, clientMessageId, handlingMode } = params;
   const userId = actorUserId(actor);
 
-  const conversation = await transaction(async (tx) => {
-    // The customer must belong to the organization (the composite FK also guarantees it).
-    const customer = await customersRepository.findById(organizationId, input.customerId, tx);
-    if (!customer) throw new NotFoundError("Customer not found");
-    if (customer.status === "ARCHIVED") {
-      throw new ConflictError("Archived customers cannot start new conversations");
-    }
+  // The customer must belong to the organization (the composite FK also guarantees it).
+  const customer = await customersRepository.findById(organizationId, input.customerId, tx);
+  if (!customer) throw new NotFoundError("Customer not found");
+  if (customer.status === "ARCHIVED") {
+    throw new ConflictError("Archived customers cannot start new conversations");
+  }
 
-    const next = timestampSequence();
-    const createdAt = next();
-    const messageAt = next();
-    const first = input.initialMessage;
-    const fromCustomer = first?.from === "CUSTOMER";
+  const next = timestampSequence();
+  const createdAt = next();
+  const messageAt = next();
+  const first = input.initialMessage;
+  const fromCustomer = first?.from === "CUSTOMER";
 
-    const created = await conversationsRepository.create(
+  const created = await conversationsRepository.create(
+    organizationId,
+    {
+      customerId: customer.id,
+      subject: input.subject,
+      priority: input.priority,
+      channel: input.channel,
+      lastMessageAt: first ? messageAt : createdAt,
+      lastMessagePreview: first ? previewOf(first.body) : null,
+      lastMessageSenderType: first ? (fromCustomer ? "CUSTOMER" : "USER") : null,
+      lastCustomerMessageAt: fromCustomer ? messageAt : null,
+      visitorSessionId: visitorSessionId ?? null,
+      handlingMode: handlingMode ?? "HUMAN",
+    },
+    userId ?? NO_USER_ID,
+    tx,
+  );
+
+  await conversationEventsRepository.record(
+    organizationId,
+    created.id,
+    {
+      type: "CONVERSATION_CREATED",
+      metadata: { customerId: customer.id, priority: input.priority, channel: input.channel },
+      createdAt,
+      ...actorEvent(actor),
+    },
+    tx,
+  );
+
+  if (first) {
+    const message = await conversationMessagesRepository.create(
       organizationId,
+      created.id,
       {
-        customerId: customer.id,
-        subject: input.subject,
-        priority: input.priority,
-        channel: input.channel,
-        lastMessageAt: first ? messageAt : createdAt,
-        lastMessagePreview: first ? previewOf(first.body) : null,
-        lastMessageSenderType: first ? (fromCustomer ? "CUSTOMER" : "USER") : null,
-        lastCustomerMessageAt: fromCustomer ? messageAt : null,
-        visitorSessionId: visitorSessionId ?? null,
-        handlingMode: handlingMode ?? "HUMAN",
+        senderType: fromCustomer ? "CUSTOMER" : "USER",
+        senderUserId: fromCustomer ? null : userId,
+        messageType: "MESSAGE",
+        body: first.body,
+        clientMessageId: clientMessageId ?? null,
+        createdAt: messageAt,
       },
-      userId ?? NO_USER_ID,
       tx,
     );
-
     await conversationEventsRepository.record(
       organizationId,
       created.id,
       {
-        type: "CONVERSATION_CREATED",
-        metadata: { customerId: customer.id, priority: input.priority, channel: input.channel },
-        createdAt,
+        type: "MESSAGE_SENT",
+        metadata: { messageId: message.id, senderType: message.senderType },
+        createdAt: next(),
         ...actorEvent(actor),
       },
       tx,
     );
+  }
 
-    if (first) {
-      const message = await conversationMessagesRepository.create(
-        organizationId,
-        created.id,
-        {
-          senderType: fromCustomer ? "CUSTOMER" : "USER",
-          senderUserId: fromCustomer ? null : userId,
-          messageType: "MESSAGE",
-          body: first.body,
-          clientMessageId: clientMessageId ?? null,
-          createdAt: messageAt,
-        },
-        tx,
-      );
-      await conversationEventsRepository.record(
-        organizationId,
-        created.id,
-        {
-          type: "MESSAGE_SENT",
-          metadata: { messageId: message.id, senderType: message.senderType },
-          createdAt: next(),
-          ...actorEvent(actor),
-        },
-        tx,
-      );
-    }
-
-    // A staff creator has just seen everything in it.
-    if (userId)
-      await conversationsRepository.markRead(organizationId, created.id, userId, next(), tx);
-    return (await conversationsRepository.findById(
-      organizationId,
-      created.id,
-      userId ?? NO_USER_ID,
-      tx,
-    ))!;
-  });
-
-  log.info(
-    { organizationId, conversationId: conversation.id, actor: actor.kind },
-    "conversation created",
-  );
-  await emitDomainEvent({
+  // A staff creator has just seen everything in it.
+  if (userId)
+    await conversationsRepository.markRead(organizationId, created.id, userId, next(), tx);
+  const conversation = (await conversationsRepository.findById(
+    organizationId,
+    created.id,
+    userId ?? NO_USER_ID,
+    tx,
+  ))!;
+  const event = await recordDomainEvent(tx, {
     organizationId,
     actorUserId: userId,
     type: "conversation.created",
@@ -171,7 +189,20 @@ export async function createConversationCore(params: {
       channel: conversation.channel,
     },
   });
-  return conversation;
+  return { conversation, event };
+}
+
+/** After the commit: logs and publishes the `conversation.created` event recorded with the conversation. */
+export async function announceConversationCreated(
+  params: Pick<CreateConversationParams, "organizationId" | "actor">,
+  created: CreatedConversation,
+): Promise<void> {
+  const { organizationId, actor } = params;
+  log.info(
+    { organizationId, conversationId: created.conversation.id, actor: actor.kind },
+    "conversation created",
+  );
+  await publishRecordedEvents([created.event]);
 }
 
 export async function getConversation(
@@ -226,7 +257,10 @@ export async function updateConversation(
   const organizationId = ctx.organization.id;
   const changed: { status?: string; priority?: string } = {};
 
-  const result = await transaction(async (tx) => {
+  const { result, recorded } = await transaction(async (tx) => {
+    // Read-modify-write of status/priority: take the row first so concurrent changes are applied in turn and
+    // each real change records exactly one event (the previous value is read after the lock).
+    await conversationsRepository.lock(organizationId, conversationId, tx);
     const current = await requireConversationState(ctx, conversationId, tx);
     const next = timestampSequence();
     const now = next();
@@ -276,36 +310,46 @@ export async function updateConversation(
         "conversation updated",
       );
     }
-    return (await conversationsRepository.findById(
+    const updated = (await conversationsRepository.findById(
       organizationId,
       conversationId,
       ctx.user.id,
       tx,
     ))!;
+
+    // The domain events of these changes are recorded in the SAME transaction (durable) and published after the
+    // commit. Same payloads and order as before: status first, then priority.
+    const after = {
+      conversationId,
+      customerId: updated.customer.id,
+      priority: updated.priority,
+      status: updated.status,
+      assignee: updated.assignee?.id ?? null,
+    };
+    const recorded: RecordedEvent[] = [];
+    if (changed.status !== undefined) {
+      recorded.push(
+        await recordDomainEvent(tx, {
+          organizationId,
+          actorUserId: ctx.user.id,
+          type: "conversation.status_changed",
+          data: { ...after, previousStatus: changed.status },
+        }),
+      );
+    }
+    if (changed.priority !== undefined) {
+      recorded.push(
+        await recordDomainEvent(tx, {
+          organizationId,
+          actorUserId: ctx.user.id,
+          type: "conversation.priority_changed",
+          data: { ...after, previousPriority: changed.priority },
+        }),
+      );
+    }
+    return { result: updated, recorded };
   });
-  const after = {
-    conversationId,
-    customerId: result.customer.id,
-    priority: result.priority,
-    status: result.status,
-    assignee: result.assignee?.id ?? null,
-  };
-  if (changed.status !== undefined) {
-    await emitDomainEvent({
-      organizationId,
-      actorUserId: ctx.user.id,
-      type: "conversation.status_changed",
-      data: { ...after, previousStatus: changed.status },
-    });
-  }
-  if (changed.priority !== undefined) {
-    await emitDomainEvent({
-      organizationId,
-      actorUserId: ctx.user.id,
-      type: "conversation.priority_changed",
-      data: { ...after, previousPriority: changed.priority },
-    });
-  }
+  await publishRecordedEvents(recorded);
   return result;
 }
 
@@ -322,10 +366,12 @@ export async function assignConversation(
   ctx.require("view_conversations");
   const organizationId = ctx.organization.id;
   const canAssignOthers = ctx.can("assign_conversations");
-  let previousAssignee: string | null | undefined;
 
-  const result = await transaction(async (tx) => {
+  const { result, recorded } = await transaction(async (tx) => {
+    // Lock first: two assignments at once must each see the other's result as "previous assignee".
+    await conversationsRepository.lock(organizationId, conversationId, tx);
     const current = await requireConversationState(ctx, conversationId, tx);
+    let previousAssignee: string | null | undefined;
 
     if (!canAssignOthers) {
       const claimingForSelf = assigneeId === ctx.user.id;
@@ -376,28 +422,34 @@ export async function assignConversation(
         "conversation assigned",
       );
     }
-    return (await conversationsRepository.findById(
+    const updated = (await conversationsRepository.findById(
       organizationId,
       conversationId,
       ctx.user.id,
       tx,
     ))!;
+    // Durable: recorded with the assignment, published after the commit (same payload as before).
+    const recorded: RecordedEvent[] =
+      previousAssignee === undefined
+        ? []
+        : [
+            await recordDomainEvent(tx, {
+              organizationId,
+              actorUserId: ctx.user.id,
+              type: "conversation.assigned",
+              data: {
+                conversationId,
+                customerId: updated.customer.id,
+                assignee: assigneeId,
+                previousAssignee,
+                status: updated.status,
+                priority: updated.priority,
+              },
+            }),
+          ];
+    return { result: updated, recorded };
   });
-  if (previousAssignee !== undefined) {
-    await emitDomainEvent({
-      organizationId,
-      actorUserId: ctx.user.id,
-      type: "conversation.assigned",
-      data: {
-        conversationId,
-        customerId: result.customer.id,
-        assignee: assigneeId,
-        previousAssignee,
-        status: result.status,
-        priority: result.priority,
-      },
-    });
-  }
+  await publishRecordedEvents(recorded);
   return result;
 }
 
@@ -409,6 +461,7 @@ export async function unassignConversation(
   const organizationId = ctx.organization.id;
 
   return transaction(async (tx) => {
+    await conversationsRepository.lock(organizationId, conversationId, tx);
     const current = await requireConversationState(ctx, conversationId, tx);
     if (current.assignedToUserId !== null) {
       if (!ctx.can("assign_conversations") && current.assignedToUserId !== ctx.user.id) {

@@ -95,6 +95,14 @@ export const customersRepository = {
     });
   },
 
+  /** Inbound email routing: the customer with this (lowercase) address in this organization, any status. */
+  findByEmailForRouting(organizationId: string, email: string, db: Db = getDb()) {
+    return db.customer.findUnique({
+      where: { organizationId_email: { organizationId, email } },
+      select: { id: true, status: true },
+    });
+  },
+
   update(organizationId: string, id: string, data: UpdateCustomerData, db: Db = getDb()) {
     const { metadata, ...rest } = data;
     return db.customer.update({

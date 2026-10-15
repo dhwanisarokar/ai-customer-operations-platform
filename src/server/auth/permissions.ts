@@ -32,6 +32,7 @@ export const PERMISSIONS = [
   "manage_widget",
   "change_handling_mode",
   "manage_portal",
+  "manage_email",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -77,6 +78,8 @@ const ADMIN_PERMISSIONS: readonly Permission[] = [
   // The customer portal exposes a customer's conversations to a login: enabling it and inviting
   // customers is an organization-level decision.
   "manage_portal",
+  // The email channel decides where customer mail lands and which address replies come from.
+  "manage_email",
 ];
 const OWNER_PERMISSIONS: readonly Permission[] = [
   ...ADMIN_PERMISSIONS,

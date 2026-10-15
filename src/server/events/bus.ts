@@ -12,6 +12,11 @@ const log = createLogger("events");
  * ignores flagged events: automations cannot trigger automations, so there are no loops.
  */
 const automationOrigin = new AsyncLocalStorage<{ automationId: string }>();
+/** Is the current call chain running inside an automation's action? Recorded with every durable event. */
+export function isCausedByAutomation(): boolean {
+  return automationOrigin.getStore() !== undefined;
+}
+
 export function runAsAutomation<T>(automationId: string, fn: () => Promise<T>): Promise<T> {
   return automationOrigin.run({ automationId }, fn);
 }
@@ -43,12 +48,23 @@ export async function emitDomainEvent<T extends TriggerName>(input: {
   return event;
 }
 
+/**
+ * Hands an event to the automation engine and THROWS if that failed, so a caller that can retry (the outbox)
+ * knows whether it worked. `redeliver` is for a re-publication of an already-recorded event.
+ */
+export async function dispatchEventStrict(
+  event: DomainEvent,
+  options: { redeliver?: boolean } = {},
+): Promise<void> {
+  // Lazy import: the engine depends on services that emit events.
+  const { dispatchDomainEvent } = await import("@/server/automation/engine");
+  await dispatchDomainEvent(event, options.redeliver ? { redeliver: true } : {});
+}
+
 /** Hands an event to the automation engine. Also used to replay an event (same id = no duplicates). */
 export async function dispatchEvent(event: DomainEvent): Promise<void> {
   try {
-    // Lazy import: the engine depends on services that emit events.
-    const { dispatchDomainEvent } = await import("@/server/automation/engine");
-    await dispatchDomainEvent(event);
+    await dispatchEventStrict(event);
   } catch (error) {
     log.error(
       {

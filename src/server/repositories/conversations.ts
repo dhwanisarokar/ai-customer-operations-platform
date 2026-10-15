@@ -116,6 +116,7 @@ export type ConversationState = {
   priority: ConversationPriority;
   assignedToUserId: string | null;
   handlingMode: ConversationHandlingMode;
+  channel: ConversationChannel;
 };
 
 const stateSelect = {
@@ -126,6 +127,7 @@ const stateSelect = {
   priority: true,
   assignedToUserId: true,
   handlingMode: true,
+  channel: true,
 } as const;
 
 export type NewConversation = {
@@ -230,6 +232,15 @@ export const conversationsRepository = {
   },
 
   /** Lightweight state used by write paths (no joins). */
+  /**
+   * Locks the conversation row until the transaction ends. Two customer messages that arrive at the same time
+   * on a RESOLVED/PENDING conversation would otherwise both read the old status and both "reopen" it (two
+   * status events, two automation triggers).
+   */
+  async lock(organizationId: string, id: string, db: Db): Promise<void> {
+    await db.$queryRaw`SELECT 1 FROM "conversations" WHERE "id" = ${id}::uuid AND "organizationId" = ${organizationId}::uuid FOR UPDATE`;
+  },
+
   findState(
     organizationId: string,
     id: string,

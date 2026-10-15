@@ -6,6 +6,7 @@ import {
   MAX_ATTEMPTS,
   QUEUE_NAME,
   UnrecoverableJobError,
+  isEmailSendJob,
   type QueueJob,
   type AutomationQueue,
   type JobHandler,
@@ -51,7 +52,19 @@ export class BullMqAutomationQueue implements AutomationQueue {
   }
 
   async enqueue(job: QueueJob): Promise<void> {
-    await this.getQueue().add("run", job, { jobId: job.executionId });
+    await this.getQueue().add(
+      "run",
+      job,
+      isEmailSendJob(job)
+        ? // A wake-up is only a HINT (the database row is the truth). BullMQ ignores an `add` whose job id still exists in
+          // ANY set, and retained completed jobs keep their id for an hour: a job that completed without sending (not
+          // due yet, provider unavailable, lost claim) would then swallow every later wake-up with the same id. So these
+          // jobs are removed the moment they finish; the id only dedupes a job that is waiting, delayed or running.
+          // A wake-up that arrives while one is running is dropped, which is bounded: the maintenance pass (about a
+          // minute) re-queues anything still due.
+          { jobId: job.executionId, removeOnComplete: true, removeOnFail: true }
+        : { jobId: job.executionId },
+    );
   }
 
   async startWorker(handler: JobHandler): Promise<WorkerHandle> {

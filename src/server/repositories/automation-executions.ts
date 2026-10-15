@@ -55,6 +55,19 @@ export const automationExecutionsRepository = {
     }
   },
 
+  /** The execution of (automation, event), if one was recorded. */
+  findByEvent(
+    organizationId: string,
+    automationId: string,
+    eventId: string,
+    db: Db = getDb(),
+  ): Promise<ExecutionRecord | null> {
+    return db.automationExecution.findFirst({
+      where: { organizationId, automationId, eventId },
+      select: executionSelect,
+    });
+  },
+
   findById(organizationId: string, id: string, db: Db = getDb()): Promise<ExecutionRecord | null> {
     return db.automationExecution.findFirst({
       where: { id, organizationId },

@@ -21,6 +21,7 @@
     "ai:smoke": "tsx scripts/ai-smoke.ts",
     "ai:tools-smoke": "tsx scripts/ai-tools-smoke.ts",
     "worker": "tsx scripts/automation-worker.ts",
+    "email:resolve-unknown": "tsx scripts/resolve-unknown-email.ts",
     "bench:automation": "tsx scripts/automation-latency.ts"
   },
   "dependencies": {

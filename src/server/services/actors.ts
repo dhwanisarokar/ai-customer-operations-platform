@@ -11,6 +11,9 @@ export type Actor =
   // An authenticated customer of the customer portal (Phase 8): identified by the customer record its
   // verified identity is linked to, never by anything the client sends.
   | { kind: "portal"; customerId: string }
+  // A customer who emailed the organization's support address (Phase 9.2): the customer record the inbound
+  // email was matched to or created for, decided by the server from the verified sender, never by the client.
+  | { kind: "email"; customerId: string }
   // The customer-facing AI assistant (web chat). It is not a user and has no permissions: it can only
   // add its own reply, through the code path that decided to answer.
   | { kind: "ai" };
@@ -19,7 +22,9 @@ export type Actor =
 export function actorEvent(actor: Actor) {
   if (actor.kind === "user") return { actorType: "USER", actorId: actor.userId } as const;
   if (actor.kind === "ai") return { actorType: "AI", actorId: null } as const;
-  if (actor.kind === "portal") return { actorType: "CUSTOMER", actorId: actor.customerId } as const;
+  if (actor.kind === "portal" || actor.kind === "email") {
+    return { actorType: "CUSTOMER", actorId: actor.customerId } as const;
+  }
   return { actorType: "CUSTOMER", actorId: actor.visitorSessionId } as const;
 }
 

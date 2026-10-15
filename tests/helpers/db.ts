@@ -24,9 +24,10 @@ if (TEST_DATABASE_URL) {
 
 export async function resetDatabase() {
   const { getDb } = await import("@/db/client");
-  // Truncating the roots cascades to every tenant-owned table.
+  // Truncating the roots cascades to every tenant-owned table. The email replay ledger and the worker heartbeat are global (they have no
+  // organization), so it is listed explicitly.
   await getDb().$executeRawUnsafe(
-    `TRUNCATE TABLE "organizations", "users" RESTART IDENTITY CASCADE`,
+    `TRUNCATE TABLE "organizations", "users", "email_webhook_events", "worker_heartbeats" RESTART IDENTITY CASCADE`,
   );
 }
 

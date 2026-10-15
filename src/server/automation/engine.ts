@@ -27,7 +27,16 @@ export type DispatchResult = { matched: number; queued: number; duplicates: numb
  */
 export async function dispatchDomainEvent(
   event: DomainEvent,
-  deps: { queue?: AutomationQueue } = {},
+  deps: {
+    queue?: AutomationQueue;
+    /**
+     * The event is being re-published by the outbox reconciler. An execution that already exists for it is
+     * normally a "duplicate, skip"; but a crash between recording the execution and queueing it leaves a QUEUED
+     * execution nobody will ever run. On redelivery such an execution is queued again. This is safe: the queue
+     * deduplicates by execution id and a worker takes ownership of a run with one atomic update.
+     */
+    redeliver?: boolean;
+  } = {},
 ): Promise<DispatchResult> {
   const result: DispatchResult = { matched: 0, queued: 0, duplicates: 0 };
   // Changes made by an automation's own actions never start automations (no loops).
@@ -70,6 +79,24 @@ export async function dispatchDomainEvent(
       conditionResults: evaluation.results as unknown as Prisma.InputJsonValue,
     });
     if (!execution) {
+      if (deps.redeliver) {
+        const existing = await automationExecutionsRepository.findByEvent(
+          event.organizationId,
+          automation.id,
+          event.id,
+        );
+        if (existing?.status === "QUEUED") {
+          const queue = deps.queue ?? getAutomationQueue();
+          if (!deps.queue) await ensureInlineWorker(processQueueJob);
+          await queue.enqueue({ executionId: existing.id, organizationId: event.organizationId });
+          result.queued++;
+          log.info(
+            { organizationId: event.organizationId, executionId: existing.id, eventId: event.id },
+            "queued execution re-enqueued on redelivery",
+          );
+          continue;
+        }
+      }
       result.duplicates++;
       log.info(
         { organizationId: event.organizationId, automationId: automation.id, eventId: event.id },

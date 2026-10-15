@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MemoryAutomationQueue } from "./memory";
-import { UnrecoverableJobError } from "./types";
+import { UnrecoverableJobError, type EmailSendJob } from "./types";
 
 const job = (id: string) => ({ executionId: id, organizationId: "org" });
 
@@ -72,5 +72,36 @@ describe("MemoryAutomationQueue", () => {
     expect(times).toHaveLength(3);
     expect(times[1] - times[0]).toBe(100);
     expect(times[2] - times[1]).toBe(200);
+  });
+
+  // A queue DOUBLE (in-process): it mirrors the BullMQ driver's rule for email wake-ups. The real BullMQ behaviour is
+  // proven in tests/integration/email-bullmq-wakeups.test.ts against a disposable Redis.
+  it("an email wake-up only dedupes while queued or running: after it finished, the same id is accepted again", async () => {
+    const queue = new MemoryAutomationQueue({ backoffBaseMs: 0 });
+    const handler = vi.fn(async () => undefined);
+    await queue.startWorker(handler);
+    const wake: EmailSendJob = {
+      kind: "email-send",
+      executionId: "email-send-X-0",
+      organizationId: "org",
+      sendId: "X",
+    };
+    await Promise.all([queue.enqueue(wake), queue.enqueue(wake)]);
+    await queue.drain();
+    expect(handler).toHaveBeenCalledTimes(1);
+    await queue.enqueue(wake);
+    await queue.drain();
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("other jobs keep their permanent deduplication", async () => {
+    const queue = new MemoryAutomationQueue({ backoffBaseMs: 0 });
+    const handler = vi.fn(async () => undefined);
+    await queue.startWorker(handler);
+    await queue.enqueue(job("a"));
+    await queue.drain();
+    await queue.enqueue(job("a"));
+    await queue.drain();
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });
