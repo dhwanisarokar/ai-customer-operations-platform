@@ -318,6 +318,9 @@ export function ConversationPane({
             suggestion={aiDraft}
             onSuggestionClear={() => setAiDraft(null)}
             onSend={(input) => void outbox.send(input)}
+            emailReply={
+              conversation?.channel === "EMAIL" ? { to: conversation.customer.email ?? null } : null
+            }
           />
         </div>
       ) : null}

@@ -299,11 +299,25 @@ export function useSendMessage(conversationId: string) {
 
   return useMutation({
     mutationKey: mutationKeys.conversation(org, conversationId, "send-message"),
-    mutationFn: (input: SendMessageInput) =>
-      fetchJson<{ message: MessageJson }>(`/api/conversations/${conversationId}/messages`, {
+    mutationFn: async (input: SendMessageInput): Promise<{ message: MessageJson }> => {
+      if (input.viaEmail) {
+        // The email path sends ONLY the text and the idempotency key; the server decides recipient and sender.
+        const result = await fetchJson<{
+          message: MessageJson;
+          delivery: MessageJson["emailDelivery"];
+        }>(`/api/conversations/${conversationId}/email-reply`, {
+          method: "POST",
+          body: { body: input.body, clientMessageId: input.clientMessageId },
+        });
+        return { message: { ...result.message, emailDelivery: result.delivery } };
+      }
+      // Only what the plain endpoint accepts (its schema is strict).
+      const plain = { body: input.body, type: input.type, from: input.from };
+      return fetchJson<{ message: MessageJson }>(`/api/conversations/${conversationId}/messages`, {
         method: "POST",
-        body: input,
-      }),
+        body: plain,
+      });
+    },
 
     onSuccess: ({ message }) => appendMessageToCache(queryClient, org, conversationId, message),
 

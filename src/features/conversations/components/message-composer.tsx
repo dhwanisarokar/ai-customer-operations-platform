@@ -33,6 +33,12 @@ const MODES: { id: Mode; label: string; placeholder: string; submit: string }[] 
   },
 ];
 
+/** In an EMAIL conversation "Reply" is an email: its label and placeholder say so. Notes and logged messages are unchanged. */
+const EMAIL_REPLY = {
+  placeholder: "Write an email reply to the customer...",
+  submit: "Send email",
+};
+
 const PAYLOAD: Record<Mode, Pick<SendMessageInput, "type" | "from">> = {
   reply: { type: "MESSAGE", from: "USER" },
   note: { type: "INTERNAL_NOTE", from: "USER" },
@@ -49,7 +55,13 @@ export function MessageComposer({
   onSend,
   suggestion = null,
   onSuggestionClear,
+  emailReply = null,
 }: {
+  /**
+   * Set for EMAIL conversations: "Reply" then sends an email. `to` is DISPLAY ONLY (who the email will go to); the
+   * server derives the real recipient and never reads one from the request.
+   */
+  emailReply?: { to: string | null } | null;
   /** Agent replies are blocked on resolved conversations; notes and customer messages are not. */
   resolved: boolean;
   onSend: (input: SendMessageInput) => void;
@@ -68,7 +80,9 @@ export function MessageComposer({
   const [error, setError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
-  const current = MODES.find((candidate) => candidate.id === mode)!;
+  const base = MODES.find((candidate) => candidate.id === mode)!;
+  const isEmail = emailReply !== null && mode === "reply";
+  const current = isEmail ? { ...base, ...EMAIL_REPLY } : base;
   const blocked = mode === "reply" && resolved;
   const isNote = mode === "note";
   const showSuggestion = suggestion !== null && suggestionActive && mode === "reply";
@@ -81,7 +95,12 @@ export function MessageComposer({
       return;
     }
     setError(null);
-    onSend({ body, ...PAYLOAD[mode] });
+    // A fresh idempotency key per logical email reply; a retry from the outbox reuses this very input and key.
+    onSend({
+      body,
+      ...PAYLOAD[mode],
+      ...(isEmail ? { viaEmail: true, clientMessageId: crypto.randomUUID() } : {}),
+    });
     setBody("");
     if (suggestionActive) {
       setSuggestionActive(false);
@@ -196,6 +215,12 @@ export function MessageComposer({
         aria-invalid={error ? true : undefined}
       />
 
+      {isEmail ? (
+        <p className="text-muted-foreground text-xs">
+          This will be sent as an email{emailReply?.to ? ` to ${emailReply.to}` : ""}. Internal
+          notes are never emailed.
+        </p>
+      ) : null}
       {blocked ? (
         <p className="text-muted-foreground text-sm">
           This conversation is resolved. Reopen it to reply; internal notes are still allowed.

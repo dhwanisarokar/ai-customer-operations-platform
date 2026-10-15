@@ -3,6 +3,7 @@ import { fetchJson } from "@/lib/api-client";
 import { STALE_TIME } from "@/lib/query/query-client";
 import { conversationsKeys } from "@/lib/query/query-keys";
 import { useOrganizationScope } from "@/lib/query/query-provider";
+import { isSettledDelivery } from "@/server/email/delivery-state";
 import { conversationsListUrl } from "../api/requests";
 import {
   DEFAULT_EVENTS_PARAMS,
@@ -68,9 +69,21 @@ export function useConversationMessages(
       ),
     staleTime: STALE_TIME.messages,
     placeholderData: keepPreviousData,
+    // An email still being delivered (queued, sending, retrying) changes state by itself on the server. Realtime hints
+    // normally refresh it at once; this is the fallback when the stream is down, and it stops as soon as nothing is
+    // in flight. (A built-in TanStack option: no polling framework.)
+    refetchInterval: (query) =>
+      query.state.data?.items.some(
+        (item) => item.emailDelivery && !isSettledDelivery(item.emailDelivery.state),
+      )
+        ? DELIVERY_REFRESH_MS
+        : false,
     ...options,
   });
 }
+
+/** How often an in-flight email delivery is re-read when no realtime hint arrives. */
+export const DELIVERY_REFRESH_MS = 10_000;
 
 /** Audit events, newest first. */
 export function useConversationEvents(

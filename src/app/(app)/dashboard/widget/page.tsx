@@ -1,3 +1,5 @@
+import { EmailAttentionCard } from "@/features/email/components/email-attention-card";
+import { EmailSettingsCard } from "@/features/email/components/email-settings-card";
 import { PortalSettingsCard } from "@/features/portal/components/portal-admin";
 import { WidgetSettingsForm } from "@/features/widget/components/widget-settings-form";
 import { requirePageContext } from "@/server/auth/page-context";
@@ -23,6 +25,8 @@ export default async function WidgetSettingsPage() {
         </p>
       )}
       {ctx.can("manage_portal") ? <PortalSettingsCard /> : null}
+      {ctx.can("manage_email") ? <EmailSettingsCard /> : null}
+      {ctx.can("manage_email") ? <EmailAttentionCard /> : null}
     </main>
   );
 }

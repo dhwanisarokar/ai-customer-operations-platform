@@ -46,4 +46,17 @@ export type SendMessageInput = {
   body: string;
   type: "MESSAGE" | "INTERNAL_NOTE";
   from: "USER" | "CUSTOMER";
+  /**
+   * An email reply (EMAIL conversations): sent through `POST .../email-reply` instead of `.../messages`. The server
+   * derives the recipient and sender; only the text and `clientMessageId` travel.
+   */
+  viaEmail?: boolean;
+  /**
+   * The idempotency key of an email reply, generated ONCE per logical reply. It lives in the outbox item's input, so a
+   * retry re-sends the very same key and the server answers it with the original instead of sending twice.
+   */
+  clientMessageId?: string;
 };
+
+/** What staff see of an outbound email's delivery (see src/server/email/delivery-state.ts). */
+export type EmailDeliveryJson = NonNullable<MessageJson["emailDelivery"]>;

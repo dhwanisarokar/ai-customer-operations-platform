@@ -1,7 +1,8 @@
-import { CheckIcon, ClockIcon, TriangleAlertIcon } from "lucide-react";
+import { CheckIcon, CircleHelpIcon, ClockIcon, TriangleAlertIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { dayLabel, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { EmailDeliveryJson } from "../api/types";
 import { describeEvent, MESSAGE_EVENT_TYPES, type TimelineEvent } from "../event-text";
 
 export type TimelineMessage = {
@@ -17,6 +18,11 @@ export type TimelineMessage = {
     intent?: string | null;
     sources: { documentId: string; documentTitle: string; chunkId: string; chunkIndex: number }[];
   } | null;
+  /**
+   * The PERSISTED delivery state of an outbound email (server data, EMAIL conversations only). Not to be confused with
+   * `delivery` below, which is the browser-side state of the HTTP request that submitted the message.
+   */
+  emailDelivery?: EmailDeliveryJson | null;
   /**
    * Delivery state of a message the current user just sent (UI state, never persisted).
    * Absent for everything loaded from the server in the normal way.
@@ -162,6 +168,9 @@ function MessageBubble({
       </header>
       <p className="text-sm wrap-break-word whitespace-pre-wrap">{message.body}</p>
       {isNote ? <p className="text-muted-foreground text-xs">Only visible to your team.</p> : null}
+      {!isNote && !fromCustomer && !fromAi && message.emailDelivery ? (
+        <EmailDeliveryLine delivery={message.emailDelivery} />
+      ) : null}
       {fromAi ? <AiSources ai={message.ai ?? null} /> : null}
       {message.delivery === "failed" && message.clientId ? (
         <p role="alert" className="text-destructive flex flex-wrap items-center gap-2 text-xs">
@@ -175,6 +184,59 @@ function MessageBubble({
         </p>
       ) : null}
     </article>
+  );
+}
+
+const FAILURE_TEXT: Record<NonNullable<EmailDeliveryJson["failure"]>, string> = {
+  rejected: "The mail provider refused it.",
+  retries_exhausted: "It could not be sent after several attempts.",
+  sender_unavailable: "Email sending was switched off or changed before it could be sent.",
+  message_missing: "The message could not be found.",
+  provider_no_record: "The mail provider has no record of it, so it was not sent.",
+  operator_confirmed_not_sent: "An operator confirmed it was not sent.",
+};
+
+/**
+ * The persisted delivery state of an outbound email, in plain words. "Accepted" never claims delivery: the provider
+ * took the email, and nothing here confirms it reached the customer's inbox. "Unknown" is neither success nor failure.
+ */
+function EmailDeliveryLine({ delivery }: { delivery: EmailDeliveryJson }) {
+  const { state } = delivery;
+  const text: Record<EmailDeliveryJson["state"], string> = {
+    queued: "Queued to send by email",
+    sending: "Sending by email\u2026",
+    accepted:
+      "Accepted by the mail provider \u00b7 delivery to the customer's inbox is not confirmed",
+    retrying: delivery.retryAt
+      ? `Temporary problem, retrying (next attempt around ${formatTime(delivery.retryAt)})`
+      : "Temporary problem, retrying",
+    failed: `Email not sent. ${delivery.failure ? FAILURE_TEXT[delivery.failure] : ""}`.trim(),
+    unknown:
+      "Outcome unknown \u00b7 it may or may not have been delivered. Check before sending it again.",
+  };
+  const Icon = {
+    queued: ClockIcon,
+    sending: ClockIcon,
+    accepted: CheckIcon,
+    retrying: ClockIcon,
+    failed: TriangleAlertIcon,
+    unknown: CircleHelpIcon,
+  }[state];
+  return (
+    <p
+      role={state === "failed" || state === "unknown" ? "alert" : "status"}
+      aria-label={`Email delivery: ${state}`}
+      data-delivery-state={state}
+      className={cn(
+        "flex items-start gap-1.5 text-xs",
+        state === "failed" && "text-destructive",
+        state === "unknown" && "text-chart-2 font-medium",
+        state !== "failed" && state !== "unknown" && "text-muted-foreground",
+      )}
+    >
+      <Icon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      <span>{text[state]}</span>
+    </p>
   );
 }
 
