@@ -977,18 +977,24 @@ describeDb("outbound email: durable delivery foundation (fake provider)", () => 
       const res = await handleInboundWebhook(provider.receive(email).webhook);
       expect(res.body.status).toBe("processed");
     }
-    const conversationOf = async () =>
-      (
-        await (
-          await db()
-        ).conversation.findFirstOrThrow({
-          where: { organizationId: t.orgA.id, channel: "EMAIL", subject: "Order help" },
-        })
-      ).id;
+    // The conversation an inbound email created, found by the RFC Message-ID recorded for it (inside this organization).
+    // NOT by subject: the seeded conversation of this suite has the same subject, a lookup by subject has no defined
+    // order, and which of the two rows a database returns depends on its query plan (index order on a database with
+    // statistics, insertion order on a fresh one).
+    const conversationOf = async (rfcMessageId: string) => {
+      const found = await (
+        await db()
+      ).emailMessage.findFirstOrThrow({
+        where: { organizationId: t.orgA.id, rfcMessageId },
+        select: { conversationId: true },
+      });
+      expect(found.conversationId).not.toBe(conversationId); // an inbound email never lands in the seeded conversation
+      return found.conversationId;
+    };
 
     it("replies in the customer's thread: In-Reply-To is their message, References the chain, Message-ID ours", async () => {
       await inbound({ messageId: "<c1@customer.test>" });
-      const cid = await conversationOf();
+      const cid = await conversationOf("<c1@customer.test>");
       const first = await reply("Reply 1", cid);
       await run(first.sendId);
       const sent1 = provider.sent[0];
@@ -1014,7 +1020,7 @@ describeDb("outbound email: durable delivery foundation (fake provider)", () => 
 
     it("the customer's reply to OUR Message-ID lands in the same conversation, whatever its subject says", async () => {
       await inbound({ messageId: "<c1@customer.test>" });
-      const cid = await conversationOf();
+      const cid = await conversationOf("<c1@customer.test>");
       const { sendId } = await reply("Reply", cid);
       await run(sendId);
       await inbound({
