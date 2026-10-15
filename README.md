@@ -1,4 +1,4 @@
-# AI Customer Operations Platform
+# AI Customer Operations Platform [![CI](https://github.com/dhwanisarokar/ai-customer-operations-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/dhwanisarokar/ai-customer-operations-platform/actions/workflows/ci.yml)
 
 **An AI-powered customer support and operations platform built with Next.js, TypeScript, PostgreSQL, and Gemini.**
 
