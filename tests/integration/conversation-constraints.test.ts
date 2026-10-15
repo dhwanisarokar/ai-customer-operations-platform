@@ -124,7 +124,7 @@ describeDb("conversation database integrity", () => {
 
     it("rejects invalid enum values", async () => {
       await expect(insertConversation("subject, priority", `'x', 'CRITICAL'`)).rejects.toThrow();
-      await expect(insertConversation("subject, channel", `'x', 'EMAIL'`)).rejects.toThrow();
+      await expect(insertConversation("subject, channel", `'x', 'FAX'`)).rejects.toThrow();
     });
 
     it("rejects blank bodies, non-user senders carrying a user id, and customer-written internal notes", async () => {

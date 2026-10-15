@@ -46,8 +46,11 @@ export const aiReplyClientId = (messageId: string) => `ai-reply-${messageId}`;
  */
 export function customerAiEnabledFor(
   settings: { enabled: boolean; aiRepliesEnabled: boolean } | null,
-  channel: "IN_APP" | "WEB_CHAT" | "PORTAL",
+  channel: "IN_APP" | "WEB_CHAT" | "PORTAL" | "EMAIL",
 ): boolean {
+  // Only conversations with a live visitor (web chat, portal) get automatic AI replies. Email never does:
+  // no autonomous AI email replies (staff can still ask for a DRAFT and review it).
+  if (channel !== "WEB_CHAT" && channel !== "PORTAL") return false;
   if (!settings?.aiRepliesEnabled) return false;
   return channel === "PORTAL" || settings.enabled;
 }

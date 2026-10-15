@@ -41,27 +41,33 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships        Membership[]
-  customers          Customer[]
-  tags               Tag[]
-  activities         CustomerActivity[]
-  notes              CustomerNote[]
-  customerTags       CustomerTag[]
-  conversations      Conversation[]
-  messages           Message[]
-  conversationEvents ConversationEvent[]
-  readStates         ConversationReadState[]
-  knowledgeDocuments KnowledgeDocument[]
-  knowledgeChunks    KnowledgeDocumentChunk[]
-  aiActionApprovals  AiActionApproval[]
-  aiToolAudits       AiToolAudit[]
-  automations        Automation[]
-  automationRuns     AutomationExecution[]
-  widgetSettings     WidgetSettings?
-  visitorSessions    VisitorSession[]
-  portalSettings     PortalSettings?
-  portalAccounts     CustomerPortalAccount[]
-  portalInvites      PortalInvite[]
+  memberships         Membership[]
+  customers           Customer[]
+  tags                Tag[]
+  activities          CustomerActivity[]
+  notes               CustomerNote[]
+  customerTags        CustomerTag[]
+  conversations       Conversation[]
+  messages            Message[]
+  conversationEvents  ConversationEvent[]
+  readStates          ConversationReadState[]
+  knowledgeDocuments  KnowledgeDocument[]
+  knowledgeChunks     KnowledgeDocumentChunk[]
+  aiActionApprovals   AiActionApproval[]
+  aiToolAudits        AiToolAudit[]
+  automations         Automation[]
+  automationRuns      AutomationExecution[]
+  widgetSettings      WidgetSettings?
+  visitorSessions     VisitorSession[]
+  portalSettings      PortalSettings?
+  portalAccounts      CustomerPortalAccount[]
+  portalInvites       PortalInvite[]
+  emailSettings       EmailSettings?
+  emailMessages       EmailMessage[]
+  emailHeldMessages   EmailHeldMessage[]
+  domainEventOutbox   DomainEventOutbox[]
+  outboundEmails      OutboundEmail[]
+  outboundEmailAudits OutboundEmailAudit[]
 
   @@map("organizations")
 }
@@ -252,6 +258,8 @@ enum ConversationChannel {
   WEB_CHAT
   // An authenticated customer in the customer portal (Phase 8).
   PORTAL
+  // A customer who emailed the organization's support address (Phase 9).
+  EMAIL
 }
 
 enum MessageSenderType {
@@ -331,6 +339,8 @@ model Conversation {
   events         ConversationEvent[]
   aiApprovals    AiActionApproval[]
   readStates     ConversationReadState[]
+  emailMessages  EmailMessage[]
+  outboundEmails OutboundEmail[]
 
   @@unique([id, organizationId])
   // A visitor's own conversations, newest first.
@@ -365,11 +375,15 @@ model Message {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  conversation Conversation @relation(fields: [conversationId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sender       User?        @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation  Conversation    @relation(fields: [conversationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sender        User?           @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  emailMessages EmailMessage[]
+  outboundEmail OutboundEmail[]
 
   @@unique([conversationId, clientMessageId])
+  // Target of the composite foreign key of email_messages (message, conversation and organization agree).
+  @@unique([id, conversationId, organizationId])
   // Timeline pages of one conversation in chronological order (and the reverse for "latest N").
   @@index([organizationId, conversationId, createdAt, id])
   @@map("messages")
@@ -641,7 +655,8 @@ model WidgetSettings {
   welcomeMessage   String
   // #rrggbb, or null to use the application's theme color.
   accentColor      String?
-  // Websites allowed to frame the widget (CSP frame-ancestors). Empty = any website.
+  // Websites allowed to start a chat: checked by /api/widget/session against the embedding page's reported origin. Empty = any
+  // website. NOT enforced by the browser (the widget page sends no frame-ancestors): see docs/deployment.md, security headers.
   allowedOrigins   String[] @default([])
   // Customer-facing AI: when true, visitor messages get an automatic, read-only AI answer (until a
   // person takes over). Off by default; an organization opts in.
@@ -735,4 +750,324 @@ model PortalInvite {
 
   @@index([organizationId, customerId])
   @@map("portal_invites")
+}
+
+// ---- Email channel (Phase 9) ----------------------------------------------------------------------
+
+// Where an organization's email integration stands. Verification means the PROVIDER confirmed that mail
+// for this address can be received and sent; it never involves an organization-supplied secret.
+enum EmailSettingsStatus {
+  UNCONFIGURED
+  PENDING_VERIFICATION
+  ACTIVE
+  FAILED
+}
+
+// One row per organization, created on first save; no row means "email is off". The support address lives
+// on the PLATFORM's email domain (custom domains are deferred), so it is the routing key for inbound mail:
+// the organization of an incoming message is decided ONLY by looking the recipient address up here.
+// Disabled by default and only ever enabled while ACTIVE (CHECK).
+model EmailSettings {
+  id              String              @id @default(uuid()) @db.Uuid
+  organizationId  String              @unique @db.Uuid
+  enabled         Boolean             @default(false)
+  status          EmailSettingsStatus @default(UNCONFIGURED)
+  // Short machine code of the last verification outcome (e.g. "provider_rejected"); never provider output.
+  statusDetail    String?
+  statusCheckedAt DateTime?
+  localPart       String
+  // localPart@platform-domain, lowercase. Globally unique: one address belongs to one organization.
+  supportAddress  String              @unique
+  // Display name of outbound mail ("Acme Support"), no control characters.
+  fromName        String
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @default(now())
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  outboundEmails OutboundEmail[]
+
+  // Target of the composite foreign key of outbound_emails (a send can only name its own organization's settings).
+  @@unique([id, organizationId])
+  @@map("email_settings")
+}
+
+// ---- Email channel: inbound (Phase 9.2) -------------------------------------------------------------
+
+enum EmailDirection {
+  INBOUND
+  // Written by the outbound stage (9.3); the lookup by Message-ID needs both directions.
+  OUTBOUND
+}
+
+// Why an inbound email was set aside for staff instead of becoming a message. None of these may attach
+// to a customer or conversation automatically.
+enum EmailHoldReason {
+  // Neither SPF nor DKIM passed (aligned with the From domain): the sender may be spoofed.
+  UNAUTHENTICATED_SENDER
+  // The sender matches an ARCHIVED customer (archived customers cannot start conversations).
+  ARCHIVED_CUSTOMER
+  // The thread headers point at more than one conversation.
+  AMBIGUOUS_THREAD
+  // The thread headers point at a conversation of a different customer than the sender.
+  THREAD_SENDER_MISMATCH
+}
+
+enum EmailEventOutcome {
+  PROCESSED
+  HELD
+  IGNORED
+  DUPLICATE
+}
+
+// The email data of ONE stored message (inbound now, outbound in 9.3): RFC headers used for threading,
+// the envelope, and the provider's id. The message body lives in `messages`; this row never holds content.
+model EmailMessage {
+  id                String         @id @default(uuid()) @db.Uuid
+  organizationId    String         @db.Uuid
+  conversationId    String         @db.Uuid
+  messageId         String         @unique @db.Uuid
+  direction         EmailDirection
+  // The provider's id: the idempotency key of inbound ingestion (unique per organization).
+  providerMessageId String?
+  // RFC 5322 Message-ID / In-Reply-To / References, exactly as sent. Threading looks these up ONLY inside
+  // the organization; the subject is never used.
+  rfcMessageId      String?
+  inReplyTo         String?
+  references        String[]
+  fromAddress       String
+  fromName          String?
+  toAddresses       String[]
+  // Recorded for the timeline only; replies are never sent to CC recipients.
+  ccAddresses       String[]
+  subject           String
+  // SPF / DKIM verdicts as reported by the provider ("pass" | "fail" | "none").
+  spf               String
+  dkim              String
+  // How the verdicts were judged: the authenticated domains and whether each is aligned with the From domain.
+  authDetail        Json           @default("{}")
+  // Metadata only (filename, contentType, size): attachments are never downloaded or served in v1.
+  attachments       Json           @default("[]")
+  receivedAt        DateTime
+  createdAt         DateTime       @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  message      Message      @relation(fields: [messageId, conversationId, organizationId], references: [id, conversationId, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, providerMessageId])
+  @@index([organizationId, rfcMessageId])
+  @@index([organizationId, conversationId])
+  @@index([organizationId, direction, fromAddress, createdAt])
+  @@map("email_messages")
+}
+
+// The replay ledger: every verified provider notification is remembered by its single-use key, so a
+// replayed (or retried) request is acknowledged without fetching or storing anything again. Holds no
+// content and no addresses.
+model EmailWebhookEvent {
+  id        String            @id @default(uuid()) @db.Uuid
+  replayKey String            @unique
+  outcome   EmailEventOutcome
+  // Short machine code (e.g. "unknown_recipient"); never provider text.
+  reason    String?
+  createdAt DateTime          @default(now())
+
+  @@index([createdAt])
+  @@map("email_webhook_events")
+}
+
+// An inbound email set aside for staff review. The body is bounded like a message and never rendered as HTML.
+model EmailHeldMessage {
+  id                String          @id @default(uuid()) @db.Uuid
+  organizationId    String          @db.Uuid
+  reason            EmailHoldReason
+  providerMessageId String
+  rfcMessageId      String?
+  inReplyTo         String?
+  references        String[]
+  fromAddress       String
+  fromName          String?
+  toAddresses       String[]
+  ccAddresses       String[]
+  subject           String
+  body              String
+  spf               String
+  dkim              String
+  // How the verdicts were judged: the authenticated domains and whether each is aligned with the From domain.
+  authDetail        Json            @default("{}")
+  attachments       Json            @default("[]")
+  receivedAt        DateTime
+  createdAt         DateTime        @default(now())
+  // Set when staff dealt with it (the review actions come with a later stage).
+  resolvedAt        DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, providerMessageId])
+  @@index([organizationId, resolvedAt, createdAt])
+  @@index([organizationId, fromAddress, createdAt])
+  @@map("email_held_messages")
+}
+
+// ---- Durable domain events (Phase 9.2 hardening) ---------------------------------------------------------
+
+// The transactional outbox for domain events. A service that changes data records the events of that change
+// in the SAME transaction (so a committed change can never lose its events), then publishes them after the
+// commit and marks them published. Anything left unpublished (a crash, an unavailable queue) is retried by
+// the reconciler with the same event id, and the automation engine deduplicates by that id, so a retry can
+// never run an automation twice. `id` IS the event id.
+model DomainEventOutbox {
+  id                 String    @id @db.Uuid
+  organizationId     String    @db.Uuid
+  type               String
+  actorUserId        String?   @db.Uuid
+  // Ids and enum values only. Message text is NOT stored here: it is read back from `messages` when the
+  // event is published (see the outbox module), so content is never duplicated.
+  data               Json
+  // True when an automation's own action caused the event: such events never trigger automations (loops).
+  causedByAutomation Boolean   @default(false)
+  occurredAt         DateTime
+  createdAt          DateTime  @default(now())
+  publishedAt        DateTime?
+  attempts           Int       @default(0)
+  // Whoever holds the lease may publish: the request that recorded the event first, then a reconciler.
+  leaseUntil         DateTime
+  // Short machine code of the last failure; never an error message.
+  lastError          String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([publishedAt, leaseUntil])
+  @@index([organizationId, createdAt])
+  @@map("domain_event_outbox")
+}
+
+// ---- Background worker heartbeat (Phase 9.2 readiness) -------------------------------------------------------
+
+// One row per kind of background pass (today only "maintenance": event reconciliation, retention, gauges). Every
+// worker upserts it after each pass, so the web tier can tell "the worker stopped" apart from "nothing to do"
+// WITHOUT any new infrastructure: the signal lives in the database both tiers already use. Not tenant data.
+model WorkerHeartbeat {
+  name          String    @id
+  lastRunAt     DateTime
+  lastSuccessAt DateTime?
+  // Short machine code of the last failure ("maintenance_failed"); cleared by the next success. Never an error message.
+  lastError     String?
+  updatedAt     DateTime  @default(now())
+
+  @@map("worker_heartbeats")
+}
+
+// ---- Outbound email (Phase 9.3A) ------------------------------------------------------------------------------
+
+// Where ONE logical outbound email stands. The database row is the only source of truth; queue jobs are wake-up
+// signals. Allowed transitions (enforced by conditional updates, see src/server/email/outbound-state.ts):
+//   PENDING | RETRY_SCHEDULED -> PROCESSING            (an atomic claim; attempts + 1)
+//   PROCESSING -> SENT | RETRY_SCHEDULED | FAILED | UNKNOWN
+//   PROCESSING -> PROCESSING                            (a crashed attempt's expired lease is taken over)
+//   UNKNOWN -> SENT | FAILED                            (confirmed later; never an automatic resend)
+// SENT and FAILED are final.
+enum OutboundEmailStatus {
+  PENDING
+  PROCESSING
+  SENT
+  RETRY_SCHEDULED
+  FAILED
+  // The provider MAY have accepted the email but the answer was lost, and no safe way to find out exists: kept for
+  // operator visibility instead of risking a duplicate customer email.
+  UNKNOWN
+}
+
+// One row per logical outbound email (a staff reply on an EMAIL conversation). `id` is the stable send id and the
+// provider idempotency key. The message body is NOT copied here (it is read from `messages` when sending); the
+// sender and recipient are snapshots so a later settings change cannot alter an email already in flight.
+model OutboundEmail {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @db.Uuid
+  conversationId  String   @db.Uuid
+  // The staff message this email delivers. One send per message.
+  messageId       String   @unique @db.Uuid
+  // The organization's settings row the sender snapshot came from (same organization by composite FK).
+  emailSettingsId String   @db.Uuid
+  fromAddress     String
+  fromName        String
+  // The customer's address, taken from the customer record by the server, never from a client.
+  toAddress       String
+  subject         String
+  // Our own deterministic RFC Message-ID, fixed at creation so every attempt (and every retry) sends the same one.
+  rfcMessageId    String
+  inReplyTo       String?
+  references      String[]
+
+  status            OutboundEmailStatus @default(PENDING)
+  // Attempts CLAIMED so far. The claim increments it BEFORE the provider is called; it is also the fencing token
+  // that stops a stale worker from finalizing an attempt another worker took over.
+  attempts          Int                 @default(0)
+  // The retry BUDGET used: how many retries were scheduled so far (the next provider call is attempt `retries + 1`). Unlike
+  // `attempts` (an ownership counter that every claim AND every takeover increments), it only moves when a retry is
+  // actually scheduled after a provider call, so recovery checks alone can never exhaust it.
+  retries           Int                 @default(0)
+  // When a PENDING / RETRY_SCHEDULED email may next be claimed.
+  nextAttemptAt     DateTime
+  // PROCESSING only: the claim is valid until then; after it, the attempt is treated as an unknown outcome.
+  leaseUntil        DateTime?
+  lastAttemptAt     DateTime?
+  providerMessageId String?
+  // Short machine code of the last failure ("rate_limited"); never provider text.
+  lastErrorCode     String?
+  // FAILED only: why it is final ("permanent", "retries_exhausted", "sender_unavailable", "message_missing").
+  finalReason       String?
+  sentAt            DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @default(now())
+
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation  Conversation         @relation(fields: [conversationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  message       Message              @relation(fields: [messageId, conversationId, organizationId], references: [id, conversationId, organizationId], onDelete: Cascade)
+  emailSettings EmailSettings        @relation(fields: [emailSettingsId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  audits        OutboundEmailAudit[]
+
+  @@unique([organizationId, rfcMessageId])
+  // Target of the composite foreign key of outbound_email_audits (an audit row can only name its own organization's send).
+  @@unique([id, organizationId])
+  // The reconciler: due sends, expired leases, oldest-first.
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseUntil])
+  @@index([organizationId, status])
+  @@index([organizationId, conversationId])
+  // The abuse limits count a tenant's recent sends (outbound-limits.ts).
+  @@index([organizationId, createdAt])
+  @@map("outbound_emails")
+}
+
+// ---- Outbound email: operational audit (Phase 9.4) ------------------------------------------------------------
+
+// An append-only record of every operational action on an outbound email whose outcome was in doubt: a re-check with
+// the provider (system evidence) or an operator's confirmation that it was NOT sent. Nothing updates or deletes these
+// rows (the repository only inserts). It holds no message text and no address: ids, coded actions, the states before
+// and after, who acted, and the reason they gave.
+model OutboundEmailAudit {
+  id              String              @id @default(uuid()) @db.Uuid
+  organizationId  String              @db.Uuid
+  outboundEmailId String              @db.Uuid
+  // recheck_found | recheck_not_found | recheck_unavailable | operator_confirmed_not_sent
+  action          String
+  previousStatus  OutboundEmailStatus
+  newStatus       OutboundEmailStatus
+  // "user": an organization admin who asked the system to re-check. "operator": a person with server access who
+  // attested an outcome from outside the system (see docs/email-outbound.md); they have no user row.
+  actorKind       String
+  actorUserId     String?             @db.Uuid
+  operatorLabel   String?
+  // Why, in the actor's words (required for an operator attestation).
+  reason          String?
+  createdAt       DateTime            @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  outboundEmail OutboundEmail @relation(fields: [outboundEmailId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@index([outboundEmailId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("outbound_email_audits")
 }
