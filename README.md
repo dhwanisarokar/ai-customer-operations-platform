@@ -1,11 +1,42 @@
 # AI Customer Operations Platform
 
-A multi-tenant SaaS for support and customer-operations teams: a shared inbox, a 360-degree customer record, an AI assistant that
-**drafts** replies for a person to approve, workflow automation, an embeddable web chat, a customer portal, and an email channel
-foundation. It is a modular monolith (one Next.js application plus one background worker) on PostgreSQL.
+**An AI-powered customer support and operations platform built with Next.js, TypeScript, PostgreSQL, and Gemini.**
 
-> Status: feature-complete through Phase 9 (the email foundation). **Email is deliberately limited to an in-memory test provider:** no real
-> email provider is integrated, so nothing can be sent to a real customer. See [Known limitations](#known-limitations).
+A multi-tenant SaaS application that brings customer management, conversations, knowledge-grounded AI assistance, and deterministic workflow automation into one system.
+
+The platform is designed around a key principle: **AI assists the support team; people retain control over customer-visible replies and state-changing actions.**
+
+[Architecture](docs/architecture.md) · [API Reference](docs/api.md) · [Testing](docs/testing.md) · [Deployment Guide](docs/deployment.md)
+
+## Highlights
+
+- **Multi-tenant security:** Organization-scoped access control with OWNER, ADMIN, and MEMBER roles, backed by PostgreSQL constraints.
+- **Customer 360:** Customer profiles, tags, notes, and an activity timeline.
+- **Shared support inbox:** Conversations across in-app messaging, web chat, the customer portal, and the email foundation.
+- **Human-approved AI:** Gemini-powered, knowledge-grounded reply drafts with explicit human approval for customer-visible replies and state-changing tool actions.
+- **Knowledge retrieval (RAG):** Article embeddings and semantic retrieval using PostgreSQL and pgvector.
+- **Deterministic automation:** Event-driven workflows with background processing, retries, and execution history.
+- **Embeddable web chat:** Anonymous visitor sessions, realtime messaging, and handoff to a human.
+- **Customer portal:** Authenticated customers can view their conversations and access help articles.
+- **Reliability and testing:** Durable domain events, tenant-isolation constraints, security headers, and CI using disposable PostgreSQL and Redis services.
+
+## Engineering and quality
+
+- **Architecture:** Modular monolith with a Next.js web application and a separate background worker.
+- **Data and jobs:** PostgreSQL, Prisma, pgvector, Redis, and BullMQ.
+- **AI:** Gemini with retrieval-grounded responses and human approval boundaries.
+- **Validation:** TypeScript, ESLint, Prettier, Vitest, React Testing Library, and GitHub Actions.
+
+The full test suite has **2,211 passing tests** in the reported run. See the [testing guide](docs/testing.md) for the test setup and integration-test requirements.
+
+## Important limitations
+
+- **Email is simulated:** Only an in-memory fake provider exists. No real customer email can be sent through this implementation.
+- **No billing integration:** Billing is not implemented.
+- **No automated browser E2E suite:** Automated tests cover unit, component, and integration behavior; browser checks are separate.
+- **Deployment is documented, not automated:** No Dockerfile or platform-specific deployment manifest is included.
+
+See [Known limitations](#known-limitations), the [email documentation](docs/email.md), and the [deployment guide](docs/deployment.md) for details.
 
 ## What it does
 
