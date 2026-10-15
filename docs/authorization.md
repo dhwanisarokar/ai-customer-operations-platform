@@ -96,13 +96,13 @@ and priority changes are open to members because they are routine inbox work; th
 | `publish_knowledge` (publish, unpublish, archive, delete, edit live content) |   x   |   x   |        |
 
 Rationale: everything that changes what the AI tells customers needs an ADMIN. Generating an AI
-reply uses `send_messages` (it stores a message in the conversation); no separate AI permission
+reply uses `send_messages` (it stores a message in the conversation); no separate AI permission. Sending a reply by EMAIL (`POST .../email-reply`) also uses `send_messages`; the recipient and sender are never taken from the request. Viewing outbound email that needs attention and re-checking an unknown send use `manage_email` (ADMIN, OWNER), for the caller's own organization only. **There is no platform-operator role**: no organization role grants cross-tenant visibility, and the operator attestation of an unknown email is a server-side tool (`npm run email:resolve-unknown`), not an HTTP capability
 exists yet. The AI itself holds no permissions: it has no tools, and authorization is always
 deterministic application code. Details: [knowledge-base.md](knowledge-base.md),
 [ai-agent.md](ai-agent.md).
 
 ## Automation permissions (Phase 6)
 
-`manage_widget` (ADMIN, OWNER: configure the web chat widget); `manage_portal` (ADMIN, OWNER: enable the customer portal, invite and revoke customers); `change_handling_mode` (ADMIN, OWNER: switch a web chat between AI and human handling; members take over by claiming or replying); `view_automations` (all roles); `create_automations`, `update_automations`, `delete_automations`,
+`manage_widget` (ADMIN, OWNER: configure the web chat widget); `manage_portal` (ADMIN, OWNER: enable the customer portal, invite and revoke customers); `manage_email` (ADMIN, OWNER: set up, verify and enable the email channel); `change_handling_mode` (ADMIN, OWNER: switch a web chat between AI and human handling; members take over by claiming or replying); `view_automations` (all roles); `create_automations`, `update_automations`, `delete_automations`,
 `execute_automations` (ADMIN and OWNER). An automation acts with its creator's permissions, checked when it
 is saved and again every time it runs. See [automations.md](automations.md).

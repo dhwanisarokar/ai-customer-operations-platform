@@ -213,11 +213,22 @@ No body. Members may release only their own assignment; ADMIN/OWNER anyone's. Id
 
 ### `GET /api/conversations/:conversationId/messages` (view_conversations)
 
+Messages of an **email** conversation that were sent by email carry `emailDelivery` (`state`: queued, sending, accepted, retrying, failed, unknown; `retryAt`, `acceptedAt`, `failedAt`, `failure`; the internal attempt counter is not exposed). `accepted` means the mail provider accepted it, not that it was delivered; `unknown` is neither success nor failure. Other channels have no such field.
+
 Query: `limit` (1-200, default 50), `before` (message id cursor, must belong to this conversation),
 `includeInternal` (`true|false`, default `false`: internal notes are excluded unless asked for).
 `200 { items: [message] (oldest first), hasMore, nextCursor, total }` where message is
 `{ id, senderType, senderUserId, messageType, body, createdAt, sender: {id, name, email} | null }`.
 Errors: 400 (bad limit/cursor), 401, 404.
+
+### `POST /api/conversations/:conversationId/email-reply` (send_messages: any member)
+
+Send a reply to the customer BY EMAIL (conversations on the `EMAIL` channel only). Body, strict: `{ body, clientMessageId }` (`clientMessageId` is a UUID the
+client generates once per logical reply and reuses on retry). Recipient, sender, subject, threading headers and organization are derived on the server and
+rejected if sent (400). Returns `{ message, delivery, duplicate }`: **201** for a new reply (stored atomically with its outbound send, queued, NOT sent from the
+request), **200** with `duplicate: true` for a repeat (nothing new created or queued). 404 for a conversation outside the caller's organization; 409 when the
+conversation is not an email conversation, the customer has no address or is archived, email is not set up/enabled/verified, the conversation is resolved, or the key
+was already used for different content / by another user / by a non-email message. **429** (`rate_limited`, with `Retry-After`; a generic message that names no tenant, recipient or limit) when an outbound limit is reached: per organization (minute, day), per account (minute) or per recipient (hour); see [email-operations](email-operations.md#outbound-abuse-limits-and-provider-assessment-phase-96). See [email-outbound](email-outbound.md#inbox-integration-phase-93b).
 
 ### `POST /api/conversations/:conversationId/messages` (send_messages: any member)
 
@@ -376,3 +387,43 @@ Conversations now include `handlingMode`.
 Customer endpoints (`/api/portal/{org}/...`, Clerk session + verified customer link) and the staff endpoints
 (`/api/portal-settings`, `/api/customers/:id/portal-invite`, `/api/customers/:id/portal-access`, permission
 `manage_portal`) are documented in [portal.md](portal.md). Conversations now also have channel `PORTAL`.
+
+## Email settings (Phase 9.1)
+
+Permission `manage_email` (ADMIN, OWNER); the organization is always the caller's. Bodies are strict.
+
+| Endpoint                          | Notes                                                                                                                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/email-settings`         | `{ settings }`: `available`, `platformDomain`, `enabled`, `status`, `statusDetail`, `localPart`, `supportAddress`, `fromName`, `suggestedLocalPart`. Never creates a row.       |
+| `PUT /api/email-settings`         | `{ localPart, fromName }`. 400 invalid or reserved name or unsafe sender name; 409 platform email unavailable or address taken. A new address resets verification and disables. |
+| `POST /api/email-settings/verify` | Asks the provider to confirm the address: `ACTIVE`, or `FAILED` with a short code. 404 with no address; 409 unavailable.                                                        |
+| `PUT /api/email-settings/enabled` | `{ enabled }`. Enabling needs `ACTIVE` (409 otherwise).                                                                                                                         |
+
+Conversations may now have channel `EMAIL`. See [email](email.md).
+
+## Outbound email operations (Phase 9.4)
+
+Both endpoints need `manage_email` (ADMIN, OWNER) and act on the caller's organization only; there is no platform-wide variant.
+
+- `GET /api/email-outbound/attention?page=&pageSize=&category=`: sends needing attention (`queued_overdue`, `retry_overdue`, `lease_expired`, `unknown`, `failed`), oldest
+  first, `pageSize` at most 50, plus a `summary` of counts per category. Items carry ids, category, coarse state, `since`, a coarse `failure`, a MASKED recipient and
+  `canRecheck`; never bodies, subjects, full addresses, provider ids, raw errors or leases.
+- `POST /api/email-outbound/:sendId/recheck` (no body): asks the mail provider about an `UNKNOWN` send and records its answer (`found` -> accepted, `no_record` -> not sent,
+  `unavailable` -> still unknown, `inconclusive` -> the provider has no record but its lookup no longer remembers that far back, so still unknown). 404 for another organization's send, 409 when the send is not unknown, the provider cannot be asked, or the last attempt is too recent to be sure (at least 10 minutes; longer when the provider's settle window requires).
+  It never resends and the caller cannot choose the outcome.
+
+See [email-outbound](email-outbound.md#operational-safety-phase-94).
+
+## Background health (Phase 9.2 readiness)
+
+`GET /api/health/background`: health of the worker, not of the web tier. 200 `{status:"ok"}` or 503 `{status:"degraded"}` with
+`checks.worker` (`ok|stale|never|not_required`), `checks.events` and `checks.outbound` (`ok|delayed|stuck`) and numeric `details` (including `unknownEmails`). For an external
+uptime monitor; see [email-operations](email-operations.md#worker-health).
+
+## Inbound email webhook (Phase 9.2)
+
+`POST /api/email/inbound` is called by the email provider, not by browsers. It has no session: the provider adapter
+authenticates the request (signature and freshness) and everything else is derived on the server. Responses:
+`200 {status: processed | held | ignored | duplicate}` (final, do not retry), `400` malformed, `401` bad or stale signature,
+`404` no provider or no platform domain configured, `413` body over 256 KiB (enforced while reading, also without Content-Length), `503` the message could not be fetched yet (retry), `500` unexpected (retry).
+See [email](email.md#inbound-processing-92).

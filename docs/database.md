@@ -46,8 +46,7 @@ npm run db:migrate   # dev: create + apply a migration after editing schema.pris
 npm run db:deploy    # CI/prod: apply committed migrations
 ```
 
-The `vector` extension will be enabled by a migration (`CREATE EXTENSION vector`) when the knowledge
-base is built.
+The `vector` extension is enabled by the knowledge-base migration (`CREATE EXTENSION IF NOT EXISTS vector`).
 
 ## Customer tables (Phase 2)
 
@@ -180,3 +179,60 @@ Migration `customer_portal` (additive): `ConversationChannel.PORTAL`; `portal_se
 `(customerId, organizationId) -> customers(id, organizationId)` and FK to `users`; `portal_invites`
 (`tokenHash` unique, `expiresAt`, `usedAt`, composite FK to customers, CHECK `expiresAt > createdAt`). See
 [portal](portal.md) and ADR [014](decisions/014-customer-portal-identity-linking.md).
+
+## Email foundation (Phase 9.1)
+
+Migration `email_foundation` (additive): `ConversationChannel.EMAIL`; enum `EmailSettingsStatus`; table
+`email_settings` (one row per organization, `enabled` default false, `status` default UNCONFIGURED,
+`localPart`, `supportAddress` globally unique, `fromName`). CHECKs: `enabled` requires `ACTIVE`; lower-case
+address matching its local part; local part format; sender name 1-80 chars without control characters;
+`statusDetail` is a short code. See [email](email.md) and ADR
+[015](decisions/015-email-channel-and-provider-adapter.md).
+
+## Inbound email (Phase 9.2)
+
+Migration `email_inbound` (additive): enums `EmailDirection`, `EmailHoldReason`, `EmailEventOutcome`; tables
+`email_messages` (RFC headers and envelope of a stored message; composite FKs `(messageId, conversationId,
+organizationId) -> messages` and `(conversationId, organizationId) -> conversations`; unique
+`(organizationId, providerMessageId)`; indexes for Message-ID threading), `email_held_messages` (mail set aside
+for review, bounded body) and `email_webhook_events` (global replay ledger: key, outcome, reason code; no
+content or addresses). One extra unique index on `messages(id, conversationId, organizationId)` is the FK target.
+CHECKs: lowercase addresses, SPF/DKIM verdicts, header-id shape and size, subject and body lengths, bounded
+lists, coded reasons. Migration `email_inbound_hardening` (additive CHECKs): no control or bidirectional-override characters in sender names, subjects and provider ids, and a shape check on the sender address. See [email](email.md) and the [audit](email-audit-9.2.md).
+
+## Outbound email (Phase 9.3A)
+
+Migration `outbound_email` (additive): enum `OutboundEmailStatus` (PENDING, PROCESSING, SENT, RETRY_SCHEDULED, FAILED, UNKNOWN); table
+`outbound_emails` (one row per logical send; `id` is the idempotency key; composite FKs to `conversations`, `messages` and `email_settings`
+so every reference stays inside one organization; unique `messageId` and `(organizationId, rfcMessageId)`; indexes for the reconciler);
+CHECKs on state-versus-column consistency (SENT has proof, FAILED has a reason, PROCESSING has a lease and an attempt, waiting states have no
+lease), coded errors, address and header hygiene, bounded lists; and one extra unique index `email_settings(id, organizationId)` as a foreign-key
+target. ASCII only. The message body is not stored. See [email-outbound](email-outbound.md) and ADR [017](decisions/017-outbound-email-outbox.md).
+
+## Outbound email audit (Phase 9.4)
+
+Migration `outbound_email_audit` (additive): table `outbound_email_audits` (append-only: the repository only inserts and reads) with a composite FK
+`(outboundEmailId, organizationId) -> outbound_emails`, and one extra unique index `outbound_emails(id, organizationId)` as its target. CHECKs allow only the audited
+ways out of UNKNOWN (`recheck_found` UNKNOWN->SENT, `recheck_not_found` UNKNOWN->FAILED, `recheck_unavailable` UNKNOWN->UNKNOWN, `operator_confirmed_not_sent`
+UNKNOWN->FAILED, the last only by an operator with a label and a reason of at least 10 characters); there is deliberately no action that marks an unknown send SENT on someone's say-so.
+No message text or address is stored. ASCII only.
+
+## Durable events and sender-auth detail (Phase 9.2 hardening)
+
+Migration `domain_event_outbox` (additive): table `domain_event_outbox` (`id` = event id, organization FK cascade, `type`, `actorUserId`, `data` (ids and enums only, never message text), `causedByAutomation`, `occurredAt`, `publishedAt`, `attempts`, `leaseUntil`, `lastError` (code)); indexes `(publishedAt, leaseUntil)` and `(organizationId, createdAt)`; CHECKs on type format, attempts and error code. Deliberately no CHECK comparing `publishedAt` with `createdAt` (database clock versus application clock). Migration `email_auth_detail` (additive): column `authDetail jsonb default '{}'` on `email_messages` and `email_held_messages` (object, at most 4 KiB): the authenticated domains and per-signature alignment behind the stored `spf`/`dkim` verdicts. See ADR [016](decisions/016-durable-domain-events.md) and [email-operations](email-operations.md). Migration `worker_heartbeat` (additive): table `worker_heartbeats` (`name` PK, `lastRunAt`, `lastSuccessAt`, `lastError` code, `updatedAt`), one row per kind of background pass; not tenant data. Migration `email_inbound_hardening` needs a **UTF8 database** (it names non-ASCII code points in regex checks) and stops with a clear message otherwise; this includes the Prisma shadow database, which on Windows may default to WIN1252. Migration files are pure ASCII (a guard test enforces it); the full chain was applied with `prisma migrate deploy` to a fresh UTF8 database with an empty schema drift afterwards. The 9.2 migration `email_inbound` creates a unique index on `messages(id, conversationId, organizationId)`, which takes a write lock on `messages` while it builds: apply it in a quiet period if that table is large.
+
+## Outbound email abuse limits index (Phase 9.6)
+
+`20261021000000_outbound_email_limits_index` adds `outbound_emails_organizationId_createdAt_idx` on `outbound_emails("organizationId", "createdAt")`, used by the per-organization,
+per-account and per-recipient counts in `src/server/email/outbound-limits.ts`. Additive (no table, column or row changes), ASCII, built under a short write lock on a small table.
+
+## Outbound retry budget (Phase 9.7)
+
+`20261022000000_outbound_email_retry_budget` adds `outbound_emails.retries` (`INTEGER NOT NULL DEFAULT 0`, CHECK `retries BETWEEN 0 AND 50`) and sets it for existing rows (none in a deployment that
+has not sent email). `attempts` stays the ownership/fencing counter (CHECK 0 to 50, incremented by every claim and takeover); `retries` is the retry budget and only moves when a retry is scheduled after a provider call.
+Additive, ASCII; the column add with a constant default and the one small UPDATE touch only `outbound_emails`.
+
+## Migration history and timestamps
+
+The Phase 9 migrations carry timestamps `20261013000000` to `20261022000000`. They were **not** renamed: whether a shared database already recorded any of them cannot be established from Git. The owner check, the safe naming rule for future
+migrations (create with `--create-only`, then rename above `20261022000000` before applying) and the release procedure are in [deployment](deployment.md#migration-history-and-timestamps-owner-decision-recorded-nothing-renamed).

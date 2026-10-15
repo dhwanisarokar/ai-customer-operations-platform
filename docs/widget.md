@@ -170,3 +170,9 @@ person (nothing). The AI's fallback text may offer help, but it is plain text. (
 under the last AI message flagged `handoffSuggested`, from a second code path; that flag now only lets a later
 "yes" be read as accepting the offer.) The state comes from the server (`humanRequested`, `assistant`), so
 reloads and realtime updates cannot produce a second action. "Share your email" is independent.
+
+## Embedding and security headers (portfolio deployment pass)
+
+The widget page (`/widget/{key}`) is the one HTML document other websites embed, so it sends **no** `X-Frame-Options` and no `frame-ancestors`; everything else in the application refuses to be framed. The page has its own
+nonce-based Content-Security-Policy (`src/proxy.ts`, `src/lib/csp.ts`) and never loads Clerk. "Allowed websites" in the widget settings is checked by `/api/widget/session` against the origin the loader reports; it is a guard rail, not a
+browser-enforced restriction (a per-organization `frame-ancestors` is not implemented). Details and the verification performed: [deployment](deployment.md#8-clerk-gemini-and-security-headers).

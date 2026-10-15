@@ -60,3 +60,6 @@ src/
 - Customer portal: [portal](portal.md), ADR [014](decisions/014-customer-portal-identity-linking.md). A third
   authorization context (an authenticated customer, via an explicit invitation-created link) next to staff and
   anonymous visitors; conversations reuse the existing domain through a `portal` actor.
+- Email channel (Phase 9; only an in-memory fake provider exists, so no real email is sent): [email](email.md), ADR
+  [015](decisions/015-email-channel-and-provider-adapter.md). `EMAIL` conversations, per-organization
+  addresses and a narrow provider adapter. Inbound processing exists (9.2, `POST /api/email/inbound`), and staff replies go out through the outbound outbox described next (9.3 to 9.7). Domain events are durable (transactional outbox, ADR [016](decisions/016-durable-domain-events.md)) for every channel's messages and conversations; outbound email is a durable outbox with at-least-once workers and no blind resend ([email-outbound](email-outbound.md), ADR [017](decisions/017-outbound-email-outbox.md)); housekeeping runs in the worker and its health is `GET /api/health/background` ([email-operations](email-operations.md)). The provider-neutral adapter contract: [email-adapter-contract](email-adapter-contract.md).

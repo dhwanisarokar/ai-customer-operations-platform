@@ -262,6 +262,66 @@ Regression `2b`/`2c` in `ai-tools.test.ts` and the staff-last cases in `prompts.
   status after requesting, no duplicate after reload or a realtime update, nothing after takeover, email sharing
   independent.
 
+## Email foundation (Phase 9.1)
+
+- `src/server/email/address.test.ts`: address normalization, local part rules, reserved names, header safety.
+- `tests/helpers/email-provider-contract.ts` + `src/server/email/fake-provider.test.ts`: the shared adapter
+  contract (forged, tampered-body, stale and future signatures; bounded fetch; idempotent send; header
+  injection; classified failures) run against the fake provider. A real adapter must pass the same suite.
+- `src/lib/env.test.ts`: email env validation, fake provider refused in production, domain format.
+- `tests/integration/email-settings.test.ts` (real PostgreSQL): RBAC (401/403), the state machine, validation and
+  strict bodies, platform unavailable, tenant isolation, global case-insensitive uniqueness, database CHECKs
+  bypassing the service, the `EMAIL` enum and no automatic AI replies on email.
+- `src/features/email/components/email-settings-card.test.tsx`: loading, unavailable, form, pending, verified,
+  failed, conflict, retry and forbidden states.
+- Migration data preservation was checked by applying all earlier migrations to a scratch database, seeding
+  rows, applying `email_foundation`, and comparing row counts and channels.
+
+### Inbound email (Phase 9.2)
+
+- `src/server/email/inbound-content.test.ts`: body/subject/name sanitization and bounds, RFC id validation,
+  attachment metadata, sender authentication, mail-system senders.
+- `tests/integration/email-inbound.test.ts` (real PostgreSQL): the full path signed webhook -> fetch -> ingest with the fake
+  provider: first email (customer, EMAIL conversation in HUMAN mode, message, email record, events), existing customer
+  matching, archived/unauthenticated/ambiguous/foreign-thread holds, In-Reply-To and References threading, no subject
+  threading, reopen on reply, cross-tenant Message-IDs, envelope-only routing, disabled/unverified addresses, dedupe and
+  replay (including concurrent), forged/tampered/stale/foreign-secret signatures, 404 without a provider, size cap, retry
+  semantics, malformed adapter output, loops, abuse bounds, atomic rollback with no events, realtime and automation
+  events, no AI replies, and the database CHECKs and composite FKs when the services are bypassed.
+- `tests/integration/email-inbound-audit.test.ts`: the Phase 9.2 audit regressions: sender-authentication verdict handling,
+  ledger scope, retention and purge floor, event-publication failures, retries and concurrency (one automation effect, one
+  reopen), exact caps under concurrent load and across organizations, streamed body limit, header/bidi/NUL sanitization,
+  database CHECKs, and a guard that only the ingestion code touches held mail.
+- Migration data preservation was checked the same way as 9.1 (earlier migrations, seeded rows incl. a message, then
+  `email_inbound`; counts unchanged).
+
+### Phase 9.2 hardening follow-up
+
+- `src/server/email/sender-auth.test.ts` + `tests/helpers/email-auth.ts`: the sender-authentication contract (17 ambiguous or non-contract shapes rejected, the alignment table, 15 realistic scenarios).
+- `tests/integration/domain-event-outbox.test.ts` (real PostgreSQL): atomic with the change, rollback leaves nothing, no message text stored, reopen and conversation events, automation-origin preserved, failing publisher never fails the request, reconciler republishes with the same id and the automation runs once, a partly-recorded execution is re-queued (mutation-checked), already-finished runs are not re-run, text read back for conditions, backoff and unknown types, two concurrent reconcilers, leases, email ingestion recovery, retention and DB checks.
+- `src/server/observability/metrics.test.ts`, `src/server/maintenance.test.ts`, `tests/integration/email-observability.test.ts`: label safety (no addresses or text), counters per rejection/outcome/quota/saturation, per-reason held caps, gauges and alerts, one maintenance pass, the loop.
+- `tests/integration/email-readiness.test.ts`, `src/server/services/background-health.test.ts`, `src/server/email/replay-policy.test.ts`: worker heartbeat, health states and route (never/ok/stale, events stuck with no worker), graceful stop, spoofed mail not consuming the quota, held-mail expiry and its floors, retention derived from the provider's replay policy, a poison event not starving others. The shared adapter contract suite now also checks replay-key namespacing, stability and uniqueness and the replay policy.
+- `tests/integration/domain-events-staff-widget.test.ts`: durable staff status/priority/assignment events and the widget visitor's `customer.created`: payload, actor and order parity, nothing recorded for no-op changes, rollback of the whole change when the event cannot be recorded, a failure after the commit recovered by the reconciler with the same event id, duplicate publication and concurrent workers (one automation effect per event), automation-caused events never retriggering, concurrent updates applied in turn, tenant isolation, and the visitor race leaving one customer and one event.
+
+### Outbound email foundation (Phase 9.3A)
+
+- `src/server/email/outbound-state.test.ts` (30): the transition table (exactly the documented set), backoff and jitter bounds, code sanitization, the decision for each result class, and the ambiguous-outcome matrix, including a sweep proving an ambiguous outcome never becomes SENT without a lookup finding it and never FAILED except on an authoritative not-found; threading derivation.
+- Shared adapter contract (`tests/helpers/email-provider-contract.ts`): declared capabilities, ambiguous results, lookup agreeing with what really happened, idempotent repeat, a dropped attempt not consuming the key.
+- `tests/integration/email-outbound.test.ts` (real PostgreSQL, injected clock, a recording queue, explicit provider outcomes, no sleeps): atomic message + send + thread row; ids-only wake-up; success and persisted SENT; retry with durable backoff and identical headers; retry surviving a restart; permanent failure; exhaustion; ambiguous in four provider worlds, hung call, throwing adapter; UNKNOWN never resent over days and only confirmable; worker death before the provider, after the provider, with no lookup; stale-worker fencing (mutation-checked); takeover races; duplicate jobs and concurrent workers; lost or never-queued jobs; provider success then a database failure; tenant isolation (service, jobs, repository, composite FKs, threading); inbound-to-outbound threading round trip; production guards; send-time sender/message checks; database constraints and impossible transitions; maintenance, gauges, alerts, health; the real in-process queue end to end. Three mutations (blind resend, no attempt fence, non-atomic claim) each fail the suite.
+
+### Staff inbox email replies (Phase 9.3B)
+
+- `tests/integration/email-inbox-reply.test.ts` (68, real PostgreSQL, the real route handlers, fake provider, recording queue): authorized roles send; the request never calls the provider and queues an ids-only job; unauthenticated; internal notes and logged customer messages are never emailed; the plain path refuses a customer-facing staff reply on an email conversation (mutation-checked); other channels unchanged; settings off / pending / failed / missing / no provider / no customer address / resolved all refuse and roll back the message; cross-organization conversations are 404; 14 client-supplied overrides (recipient, sender, organization, subject, threading, CC, type, author...) are 400 and create nothing; recipient and sender come from persisted records; idempotency (sequential, after delivery, six concurrent requests, retry after a retry state, different content, another user, a non-email message, another conversation; mutation-checked); every delivery state as the API shows it, including UNKNOWN never resent and a provider success whose database update failed; no secrets in the payload; visibility by organization; realtime hints reach only the organization's staff and carry no content; the durable message event; inbound-to-outbound threading round trip.
+- `src/features/conversations/components/email-inbox.test.tsx` (26): the composer (email wording, display-only recipient hint, a fresh key per reply, notes and logged messages are not emails), the timeline for all six states (progress, accepted without any claim of delivery, failure reasons as alerts, UNKNOWN as uncertain), no line for notes/customer/AI messages, the pane against a mocked API (only text and key are posted, a retry reuses the same key, notes use the plain endpoint, server refusals shown), and the conditional refresh (polls only while a delivery is in flight, stops when settled, never for other channels).
+
+### Outbound email operational safety (Phase 9.4)
+
+- `src/server/email/delivery-events.test.ts` (30): the receipt contract: strict schema (no organization, no raw provider text), the outcome model proved idempotent, commutative and monotone over every ordering of every combination, a bounce after a delivery wins and a late delivered cannot undo a bounce, acceptance never reads as delivery, correlation (unmatched, ambiguous across organizations, mismatch).
+- `src/server/email/resolve-unknown-cli.test.ts` (11): the operator CLI requires an explicit attestation and offers no way to mark sent or resend.
+- `tests/integration/email-outbound-ops.test.ts` (52, real PostgreSQL, injected clock, fake provider, recorded logs): the stats regression (mutation-checked); healthy waiting retries raise nothing, expired leases and backlog are distinguished; the attention view lists only overdue/stalled/unknown/failed, paginates within a cap, masks recipients and exposes no sensitive field; 401/403 and organization isolation for the view and re-check; no HTTP route can resolve as an operator, mark sent or resend (code scan); re-check found / no record / unavailable / cannot be asked / too recent / not unknown, the caller cannot choose the outcome, concurrent re-checks resolve once, audit atomic with the change; UNKNOWN never resent over days of workers, reconciler passes and re-checks; stale workers cannot overwrite a resolved send (mutation-checked); operator attestation requires identity, reason and age and can only produce FAILED; the audit table's own CHECKs and composite FK; logs carry no body, subject, address or provider id. Mutations (the old age logic, no recency guard, no UNKNOWN condition) each fail the suite.
+- `src/features/email/components/email-attention-card.test.tsx` (11): the card (nothing to attend, all categories, masked recipient, unknown wording, only "Check with provider" and never a resend or mark control, re-check outcomes without overclaiming, refusal shown, pagination, permission and error states).
+- Regression: the whole Web Chat, Portal, AI/HUMAN, handling-mode and automation suites run unchanged against the shared message/conversation path that now records durable events.
+
 ## Customer portal (Phase 8)
 
 - `tests/integration/portal.test.ts` (real PostgreSQL): signed-out 401 on every route, an unlinked identity (403 and
@@ -284,3 +344,27 @@ real routes, services, PostgreSQL and Redis in a scratch copy of the app. Becaus
 are available, the copy replaced ONLY the identity module and the middleware with a cookie-based stand-in (the
 stub is not in the repository). Everything after "who is the caller" is the real code. Clerk's own sign-in
 screens were therefore not exercised.
+
+## Phase 9.6 tests (critical email safety)
+
+- `src/server/email/outbound-state.test.ts` (pure): `reconciliationMode`, `settleWindowMs`, `leaseFor`, the retry horizon, and `decideAmbiguous` including an exhaustive sweep of capabilities x lookup answers x attempts x settle age x claim age (nothing is retried or failed without an idempotent provider or a settled, retained, authoritative "not found"; nothing becomes SENT without a lookup finding it).
+- `src/server/email/provider-policy.test.ts` (pure): every capability inconsistency is refused with its reason; production accepts only a verified provider with evidence; the fake is refused in production even when renamed.
+- `tests/integration/email-outbound-reconciliation.test.ts` (real PostgreSQL, injected clock, fake provider with a lagging lookup and late acceptance): a request that lands after the timeout is not resent and ends SENT from the lookup; a lagging lookup does not look unsent; "not found" is believed only after the window; retention lapse ends UNKNOWN; the manual guard follows the provider's timing and a "no record" past retention is inconclusive; takeover races and stale attempts; a takeover keeps `lastAttemptAt`; the lease guard (no call with too little lease); database failure after acceptance; an unsafe provider is never used.
+- `tests/integration/email-outbound-limits.test.ts` (real PostgreSQL): each dimension (organization minute and day, account, recipient), sliding windows, tenant isolation, exactness under concurrent requests, idempotency keys (a repeat is never counted or refused, a burst of identical requests creates one email, rotating keys is no bypass), delivery retries consume nothing, generic 429 with no tenant data, metrics labels, fail-closed behaviour, no in-memory state, configuration ceilings.
+- Mutation evidence (each mutation fails at least one of these suites): believing "not found" before the window, ignoring retention, no lease guard, a takeover that moves `lastAttemptAt`, the bare 10-minute guard, no retention check on a re-check, no capability assessment, idempotent mode ignoring key memory, no limits, no advisory lock, a duplicate refused at the limit, a missing recipient or tenant filter, a fail-open limiter, production accepting a declared provider.
+
+## Phase 9.7 tests (outbound reliability)
+
+- `tests/integration/email-outbound-reliability.test.ts` (real PostgreSQL, injected clock, fake provider): the ownership counter vs the retry budget vs provider calls (repeated recovery cycles with an open settle window consume no budget and stay bounded; a lost attempt is one budget unit; `scheduleRetry` and `extendLease` semantics); many workers and reconcilers on one send call the provider once; a worker paused before its call (idempotent provider: refused; lookup-only: one recorded outcome, the residual risk stated); a send that completes after its lease expired but before any takeover; an unavailable lookup (UNKNOWN, later re-check); the queue unavailable while the outbox holds due work (`FlakyQueue`, a queue DOUBLE).
+- `tests/integration/email-bullmq-wakeups.test.ts` (**REAL BullMQ and a disposable Redis database 15**, plus the real handler and PostgreSQL): the retained-job-id behaviour of the installed BullMQ reproduced with raw BullMQ; the platform's driver accepts a later wake-up after a finished one; nothing accumulates in Redis; waiting duplicates still dedupe; a wake-up during a running job is dropped and the next is accepted; end to end for `provider_unavailable`, `not_due` and `lost_claim`; many wake-ups deliver once. Skipped without `TEST_REDIS_URL`.
+- `src/server/automation/queue/memory.test.ts`: the in-process queue DOUBLE mirrors the rule (not evidence about BullMQ).
+- `src/server/email/production-boundary.test.ts`: only `fake` is selectable; the fake is refused in production; the only `EmailProvider` implementation is the fake; nothing declares a provider `verified`.
+- Mutation evidence: the retry budget back on the ownership counter, recovery not moving the lease, BullMQ retaining finished wake-ups (7 of 10 real-BullMQ tests fail), the in-process queue never forgetting an id, every retry consuming budget, a shortening `extendLease`, no lease extension, no final lease check, a no-call retry counted, and a second provider construction path: each fails its suite.
+
+## Portfolio deployment pass: configuration, headers and CI
+
+- `src/lib/runtime-config.test.ts`: production fail-fast per process (the worker needs no Clerk keys, the web process does), every missing variable listed at once, no value or fragment of one ever in an error, the process-local queue and realtime drivers refused, the fake and any real email provider refused, a no-op in development and tests.
+- `src/lib/csp.test.ts` and `src/proxy.test.ts`: the Clerk Frontend API origin decoded from a publishable key (and nothing accepted that is not a plain host), the widget policy (nonce + `strict-dynamic`, no wildcard, no `frame-ancestors`), baseline headers (HSTS only in production, never `X-Frame-Options` in the shared baseline), a unique nonce per request, `CSP_REPORT_ONLY`, and the matcher: the widget page is matched by the proxy but never handed to Clerk; the visitor API, the loader and the inbound-mail webhook are not matched.
+- `scripts/smoke-production.sh` (also a CI step, run against the fresh migrated database so a heartbeat left by a test cannot fool its worker check; it refuses non-local database or Redis URLs unless `SMOKE_ALLOW_NONLOCAL=1`): against a BUILT app it checks that an incomplete production configuration exits naming only variables, that a complete one serves, the headers on `/api/health`, `/widget/*` and `/widget.js`, that the widget page is frameable with a nonce that changes per request, and that `/api/health/background` reports a missing worker. It was run locally against both the webpack and the Turbopack (`npm run build`) production builds.
+- **Verified by hand against a production build (not automated, recorded here):** headless Chrome loaded the widget page and the sign-in page under the enforced policy with zero CSP violations (the widget hydrates); a page on another origin could frame the widget but not `/sign-in` (`frame-ancestors 'none'`); the widget visitor SSE stream (`/api/widget/events`) opened (`text/event-stream`, first event `ready`) through the headers; a web process alone gave `/api/health` 200 and `/api/health/background` 503, and with a running worker both 200.
+- CI (`.github/workflows/ci.yml`) additionally: a disposable Redis service (the real BullMQ tests run in `npm test`), a guard that the test services are local and named as throwaways, and a fresh UTF-8 database migration plus `migrate diff --exit-code` check. The workflow file itself can only be executed by GitHub Actions; its steps were validated as YAML and each shell step was run locally against equivalent scratch services.
