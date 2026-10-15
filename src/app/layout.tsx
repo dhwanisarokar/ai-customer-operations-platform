@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import type { ReactNode } from "react";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -18,8 +19,9 @@ export const metadata: Metadata = {
 };
 
 // Deliberately free of authentication: the public widget (/widget) shares this layout. Clerk lives in
-// the (app) route group.
-export default function RootLayout({ children }: LayoutProps<"/">) {
+// the (app) route group. The props are typed explicitly: Next's global `LayoutProps` helper only exists after
+// `next dev`, `next build` or `next typegen` has generated it, so a fresh checkout could not typecheck without it.
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col">{children}</body>
