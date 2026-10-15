@@ -4,10 +4,21 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing here needs to write to the repository, and no secret is used: every credential below belongs to a disposable service
+# container that exists only for this job (or is a non-functional placeholder).
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
+      # Disposable PostgreSQL with pgvector, created for this job and destroyed with it.
       postgres:
         image: pgvector/pgvector:pg17
         env:
@@ -18,12 +29,22 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s
           --health-retries 10
+      # Disposable Redis for the real BullMQ integration tests. They use database 15 and FLUSH it: it is this job's own
+      # container, never a shared Redis.
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
     env:
+      # The database that migrations are applied to and the tests run against. Its name must contain "test": the test helpers
+      # refuse to TRUNCATE anything else.
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_ops_test
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_ops_test
-      # Non-functional placeholders so the build can compile; real keys live in deployment secrets.
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk
-      CLERK_SECRET_KEY: sk_test_ci_placeholder
+      TEST_REDIS_URL: redis://localhost:6379/15
+      # Non-functional placeholders so the build can compile; real keys live in deployment secrets, never here.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsuZXhhbXBsZS50ZXN0JA
+      CLERK_SECRET_KEY: sk_live_placeholder_not_a_real_key
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,9 +52,41 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      - name: Guard - tests may only target disposable local services
+        run: |
+          set -euo pipefail
+          for url in "$TEST_DATABASE_URL" "$TEST_REDIS_URL"; do
+            host="$(printf '%s' "$url" | sed -E 's#^[a-z]+://([^@/]*@)?([^:/]+).*#\2#')"
+            [ "$host" = "localhost" ] || { echo "a test service URL points at a non-local host"; exit 1; }
+          done
+          case "$TEST_DATABASE_URL" in *test*) ;; *) echo "the test database name must contain 'test'"; exit 1;; esac
+          case "$TEST_REDIS_URL" in */15) ;; *) echo "the test Redis must be database 15"; exit 1;; esac
+
+      - name: Migrations apply to a FRESH UTF-8 database and match the Prisma schema
+        run: |
+          set -euo pipefail
+          export PGPASSWORD=postgres
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE ai_ops_fresh TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'"
+          [ "$(psql -h localhost -U postgres -d ai_ops_fresh -tAc 'SHOW server_encoding')" = "UTF8" ]
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ai_ops_fresh npx prisma migrate deploy
+          # No drift: the migrations produce exactly the schema in prisma/schema.prisma.
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ai_ops_fresh \
+            npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+
       - run: npm run db:deploy
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
+      # Includes the integration suites (PostgreSQL) and the real BullMQ tests (Redis database 15).
       - run: npm test
       - run: npm run build
+
+      # Runs against the FRESH database from the migration step (migrated, never used by the tests), so the check that "no worker is
+      # running" cannot be fooled by a heartbeat row a test left behind in ai_ops_test.
+      - name: Production smoke (fail-fast configuration, security headers, widget embeddability)
+        run: bash scripts/smoke-production.sh
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_ops_fresh
+          REDIS_URL: redis://localhost:6379/14
