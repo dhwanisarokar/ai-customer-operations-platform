@@ -171,7 +171,9 @@ is TanStack Query; there is no global client state.
 
 ## Running the worker
 
-Redis and BullMQ are used **only** for automation runs; PostgreSQL stays the source of truth.
+Redis and BullMQ are the shared background-job infrastructure: the one queue (and the one worker process below) runs automation runs, customer-facing AI replies
+([customer-ai](customer-ai.md)) and outbound email wake-ups ([email-outbound](email-outbound.md)). A job carries ids only, never message text or addresses; PostgreSQL stays the
+source of truth, so a lost job is recreated from the database. Redis also carries the realtime pub/sub between instances ([realtime](realtime.md)).
 
 ```bash
 docker compose up -d redis          # or any Redis (BullMQ recommends 6.2+; compose uses 7)

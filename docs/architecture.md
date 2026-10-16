@@ -1,7 +1,75 @@
 # Architecture
 
-A **modular monolith**: one Next.js deployable plus (later) a BullMQ worker process sharing the same
-codebase and database.
+A **modular monolith**: one codebase and one PostgreSQL database, run as two separate processes: the Next.js web
+application and the BullMQ background worker (`npm run worker`).
+
+A high-level overview (solid arrows are calls or writes, dotted arrows are best-effort notifications):
+
+```mermaid
+flowchart TB
+  subgraph Clients["Clients"]
+    direction LR
+    Staff["Staff dashboard<br/>(Clerk session)"]
+    Widget["Web chat widget<br/>(anonymous visitor session)"]
+    Portal["Customer portal<br/>(Clerk + explicit customer link)"]
+  end
+
+  EmailProv["Email provider adapter<br/>IN-MEMORY FAKE only:<br/>no real email is delivered"]
+
+  subgraph Web["Next.js web process"]
+    Routes["API routes<br/>(validate with Zod, call a service)"]
+    Ctx["Tenant context and authorization<br/>(staff RBAC, visitor session, portal link,<br/>or the verified inbound recipient)"]
+    Services["Services<br/>(authorization, tenant scoping:<br/>customers, conversations, messages, email)"]
+    Repos["Repositories<br/>(explicit organizationId)"]
+    AI["AI layer<br/>(provider interface, RAG, tools)"]
+    Approvals["Human approval<br/>(mutating tool calls wait as PENDING)"]
+    Engine["Automation engine<br/>(deterministic rules,<br/>one execution per event)"]
+    SSE["SSE realtime hints"]
+  end
+
+  Gemini["Gemini API"]
+
+  subgraph DB["PostgreSQL via Prisma: the source of truth"]
+    Data[("Business data:<br/>customers, conversations,<br/>messages, knowledge")]
+    Events[("Durable domain events<br/>(transactional outbox)")]
+    EmailBox[("Outbound email outbox")]
+  end
+
+  Redis[("Redis<br/>BullMQ job ids and realtime pub/sub<br/>(not a source of truth)")]
+
+  subgraph Worker["Background worker process (npm run worker)"]
+    Jobs["Queue consumer:<br/>automation runs, customer AI replies,<br/>outbound email sends"]
+    Maint["Maintenance loop:<br/>re-publish events, recover<br/>outbound email, retention"]
+  end
+
+  Staff -->|"Clerk"| Routes
+  Portal -->|"Clerk"| Routes
+  Widget -->|"visitor token"| Routes
+  EmailProv -->|"inbound webhook<br/>(signature verified)"| Routes
+
+  Routes --> Ctx --> Services --> Repos
+  Repos -->|"a change and its event or email send<br/>are written in one transaction"| DB
+
+  Services -->|"drafts, answers"| AI
+  AI --> Gemini
+  AI -->|"mutating tool call"| Approvals
+  Approvals -->|"only after a person approves:<br/>re-authorized, then executed"| Services
+
+  Services -->|"after commit"| Engine
+  Services -->|"after commit"| SSE
+  SSE -.->|"hints; clients refetch"| Clients
+  Web -->|"job ids"| Redis
+  SSE -.->|"pub/sub between instances"| Redis
+
+  Redis -->|"job ids"| Jobs
+  Jobs -->|"actions run through<br/>the existing services"| Services
+  Jobs -->|"outbound send"| EmailProv
+  Maint -->|"reads and updates"| DB
+```
+
+PostgreSQL is the source of truth: Redis carries job ids and realtime hints only, so a lost job is recreated from the database. The AI layer never
+executes a state-changing action on its own: a mutating tool call waits for a person's approval and then runs through the same services and authorization.
+The email provider is an in-memory fake: no real email is delivered.
 
 ```text
 src/
@@ -47,7 +115,8 @@ src/
 - Automations: [automations](automations.md). Services emit typed domain events after commit; a deterministic
   engine matches enabled automations, records one execution per (automation, event) (unique key =
   idempotency) and a BullMQ worker (`npm run worker`) runs the actions through the existing services with the
-  automation creator's current permissions. PostgreSQL is the source of truth; Redis only carries execution ids.
+  automation creator's current permissions. PostgreSQL is the source of truth; Redis carries BullMQ job ids (ids only, never business data; the same queue and worker also run customer AI replies and
+  outbound email wake-ups) and the realtime pub/sub.
 - `GET /api/health` — returns 200 `{status:"ok"}` or 503 `{status:"degraded"}` depending on DB reachability.
 - Web chat widget and realtime: [widget](widget.md), [realtime](realtime.md). Visitors are anonymous
   sessions (not users or members) that reach only a dedicated public API (`/api/widget/*`); their chats
